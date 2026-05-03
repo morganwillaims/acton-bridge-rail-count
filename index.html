@@ -7,234 +7,50 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --teal: #087f8c;
-      --teal-dark: #066977;
-      --teal-soft: #d8eef2;
-      --row: #e7f5f8;
-      --line: #c8dde0;
-      --bg: #f3f4f6;
-      --card: #ffffff;
-      --text: #1f2937;
-      --muted: #6b7280;
-      --freight: #7c2d12;
-      --passenger: #075985;
-      --warning: #92400e;
+      --teal:#087f8c; --teal-dark:#066977; --teal-soft:#d8eef2;
+      --row:#e7f5f8; --line:#c8dde0; --bg:#f3f4f6; --card:#fff;
+      --text:#1f2937; --muted:#6b7280; --freight:#7c2d12;
+      --passenger:#075985; --warning:#92400e;
     }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    .page {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 18px;
-    }
-
-    header {
-      background: var(--card);
-      border-left: 10px solid var(--teal);
-      padding: 18px 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-    }
-
-    h1 {
-      margin: 0 0 6px;
-      font-size: 30px;
-    }
-
-    .subtitle {
-      color: var(--muted);
-      margin: 0;
-      font-size: 15px;
-    }
-
-    .notice {
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      color: var(--warning);
-      padding: 12px 14px;
-      font-weight: bold;
-      margin-bottom: 16px;
-      line-height: 1.4;
-    }
-
-    .notice.ok {
-      background: #ecfdf5;
-      border-color: #bbf7d0;
-      color: #166534;
-    }
-
-    .controls, .stats-grid, .split-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .controls {
-      grid-template-columns: 180px 1fr 180px 180px;
-      background: var(--card);
-      padding: 14px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-      margin-bottom: 16px;
-      align-items: end;
-    }
-
-    label {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      font-size: 13px;
-      font-weight: bold;
-      color: #374151;
-    }
-
-    input, select, button {
-      width: 100%;
-      padding: 9px 10px;
-      font-size: 15px;
-      border: 1px solid #cbd5e1;
-      border-radius: 3px;
-      font-family: Arial, Helvetica, sans-serif;
-    }
-
-    button {
-      border: none;
-      background: var(--teal);
-      color: white;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    button:hover { background: var(--teal-dark); }
-
-    .stats-grid {
-      grid-template-columns: repeat(4, 1fr);
-      margin-bottom: 16px;
-    }
-
-    .stat-card {
-      background: var(--card);
-      padding: 18px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-      border-top: 5px solid var(--teal);
-    }
-
-    .stat-label {
-      color: var(--muted);
-      font-weight: bold;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .stat-value {
-      font-size: 36px;
-      font-weight: bold;
-      margin-top: 6px;
-    }
-
-    .split-grid {
-      grid-template-columns: 2fr 1fr;
-      align-items: start;
-    }
-
-    .panel {
-      background: var(--card);
-      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-      margin-bottom: 16px;
-    }
-
-    .panel-title {
-      background: var(--teal);
-      color: white;
-      padding: 12px 14px;
-      font-weight: bold;
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .panel-title small {
-      font-weight: normal;
-      opacity: 0.9;
-    }
-
-    .table-wrap { overflow-x: auto; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      min-width: 900px;
-      font-size: 15px;
-    }
-
-    th {
-      background: var(--teal-soft);
-      color: #111827;
-      text-align: left;
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--line);
-      white-space: nowrap;
-    }
-
-    td {
-      background: var(--row);
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--line);
-      white-space: nowrap;
-      font-style: italic;
-    }
-
-    tr:hover td { background: #dff0f4; }
-
-    .time, .count { text-align: right; font-weight: bold; }
-    .badge {
-      display: inline-block;
-      padding: 3px 7px;
-      border-radius: 999px;
-      font-weight: bold;
-      font-style: normal;
-      font-size: 12px;
-    }
-
-    .badge.freight { background: #ffedd5; color: var(--freight); }
-    .badge.passenger { background: #e0f2fe; color: var(--passenger); }
-    .badge.other { background: #f3f4f6; color: #374151; }
-
-    .side-list { padding: 14px; }
-
-    .archive-item {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 10px 0;
-      border-bottom: 1px solid #e5e7eb;
-      font-size: 14px;
-      cursor: pointer;
-    }
-
-    .archive-item:last-child { border-bottom: none; }
-    .archive-item:hover { color: var(--teal-dark); }
-
-    .empty {
-      padding: 28px;
-      text-align: center;
-      color: var(--muted);
-    }
-
-    .hidden { display: none !important; }
-
-    @media (max-width: 900px) {
-      .controls, .stats-grid, .split-grid { grid-template-columns: 1fr; }
-      table { min-width: 780px; }
-    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    .page{max-width:1280px;margin:0 auto;padding:18px}
+    header{background:var(--card);border-left:10px solid var(--teal);padding:18px 20px;margin-bottom:16px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+    h1{margin:0 0 6px;font-size:30px}
+    .subtitle{color:var(--muted);margin:0;font-size:15px}
+    .notice{background:#fff7ed;border:1px solid #fed7aa;color:var(--warning);padding:12px 14px;font-weight:bold;margin-bottom:16px;line-height:1.4}
+    .notice.ok{background:#ecfdf5;border-color:#bbf7d0;color:#166534}
+    .controls,.stats-grid,.split-grid{display:grid;gap:12px}
+    .controls{grid-template-columns:180px 1fr 180px 180px;background:var(--card);padding:14px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px;align-items:end}
+    label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:bold;color:#374151}
+    input,select,button{width:100%;padding:9px 10px;font-size:15px;border:1px solid #cbd5e1;border-radius:3px;font-family:Arial,Helvetica,sans-serif}
+    button{border:none;background:var(--teal);color:white;font-weight:bold;cursor:pointer}
+    button:hover{background:var(--teal-dark)}
+    .stats-grid{grid-template-columns:repeat(4,1fr);margin-bottom:16px}
+    .stat-card{background:var(--card);padding:18px;box-shadow:0 2px 12px rgba(0,0,0,.06);border-top:5px solid var(--teal)}
+    .stat-label{color:var(--muted);font-weight:bold;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+    .stat-value{font-size:36px;font-weight:bold;margin-top:6px}
+    .split-grid{grid-template-columns:2fr 1fr;align-items:start}
+    .panel{background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px}
+    .panel-title{background:var(--teal);color:white;padding:12px 14px;font-weight:bold;display:flex;justify-content:space-between;gap:12px;align-items:center}
+    .panel-title small{font-weight:normal;opacity:.9}
+    .table-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;min-width:900px;font-size:15px}
+    th{background:var(--teal-soft);color:#111827;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+    td{background:var(--row);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;font-style:italic}
+    tr:hover td{background:#dff0f4}
+    .time,.count{text-align:right;font-weight:bold}
+    .badge{display:inline-block;padding:3px 7px;border-radius:999px;font-weight:bold;font-style:normal;font-size:12px}
+    .badge.freight{background:#ffedd5;color:var(--freight)}
+    .badge.passenger{background:#e0f2fe;color:var(--passenger)}
+    .badge.other{background:#f3f4f6;color:#374151}
+    .side-list{padding:14px}
+    .archive-item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px;cursor:pointer}
+    .archive-item:last-child{border-bottom:none}
+    .archive-item:hover{color:var(--teal-dark)}
+    .empty{padding:28px;text-align:center;color:var(--muted)}
+    .hidden{display:none!important}
+    @media(max-width:900px){.controls,.stats-grid,.split-grid{grid-template-columns:1fr}table{min-width:780px}}
   </style>
 </head>
 <body>
@@ -265,22 +81,10 @@
     </section>
 
     <section class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Total trains</div>
-        <div class="stat-value" id="totalCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Passenger</div>
-        <div class="stat-value" id="passengerCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Freight</div>
-        <div class="stat-value" id="freightCount">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Other</div>
-        <div class="stat-value" id="otherCount">0</div>
-      </div>
+      <div class="stat-card"><div class="stat-label">Total trains</div><div class="stat-value" id="totalCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">Passenger</div><div class="stat-value" id="passengerCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">Freight</div><div class="stat-value" id="freightCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">Other</div><div class="stat-value" id="otherCount">0</div></div>
     </section>
 
     <section class="split-grid">
@@ -294,14 +98,8 @@
           <table>
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Type</th>
-                <th>Train ID</th>
-                <th>Origin</th>
-                <th>Destination</th>
-                <th>TOC</th>
-                <th>Status</th>
-                <th>Source</th>
+                <th>Time</th><th>Type</th><th>Train ID</th><th>Origin</th>
+                <th>Destination</th><th>TOC</th><th>Status</th><th>Source</th>
               </tr>
             </thead>
             <tbody id="movementBody"></tbody>
@@ -310,64 +108,43 @@
       </main>
 
       <aside class="panel">
-        <div class="panel-title">
-          <span>Daily archive</span>
-          <small>Recent days</small>
-        </div>
+        <div class="panel-title"><span>Daily archive</span><small>Recent days</small></div>
         <div class="side-list" id="archiveList"></div>
       </aside>
     </section>
   </div>
 
   <script>
-    // 1) Replace these with your Supabase project details.
-    // The anon key is safe in front-end code as long as Row Level Security is enabled.
-    const SUPABASE_URL = "PASTE_YOUR_SUPABASE_URL_HERE";
-    const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
+    const SUPABASE_URL = "https://fcbuupfckanepwdqqgfc.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZjYnV1cGZja2FuZXB3ZHFxZ2ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4Mjk0NzAsImV4cCI6MjA5MzQwNTQ3MH0.B_ZbBM9u4Ootva1r5MULfiTw29BV1VyWecifxbGw5E4";
 
     const STATION_CRS = "ACB";
     const STATION_NAME = "Acton Bridge";
-    const STATION_TIPLOC = "ACBG";
-    const STATION_STANOX = "37001";
 
-    const supabaseClient = SUPABASE_URL.startsWith("https://")
-      ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-      : null;
-
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     let movements = [];
     let lastLoadedAt = null;
 
-    function todayIso() {
-      return new Date().toISOString().slice(0, 10);
-    }
-
-    function formatDate(dateString) {
-      if (!dateString) return "selected date";
-      const [year, month, day] = dateString.split("-");
+    function todayIso(){ return new Date().toISOString().slice(0,10); }
+    function formatDate(dateString){
+      if(!dateString) return "selected date";
+      const [year,month,day]=dateString.split("-");
       return `${day}/${month}/${year}`;
     }
-
-    function now24h() {
-      const now = new Date();
-      return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+    function now24h(){
+      return new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",hour12:false});
     }
-
-    function escapeHtml(value) {
+    function escapeHtml(value){
       return String(value || "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
+        .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;").replaceAll("'","&#039;");
     }
-
-    function setStatus(message, ok = false) {
-      const notice = document.getElementById("statusNotice");
-      notice.textContent = message;
-      notice.className = ok ? "notice ok" : "notice";
+    function setStatus(message,ok=false){
+      const notice=document.getElementById("statusNotice");
+      notice.textContent=message;
+      notice.className=ok ? "notice ok" : "notice";
     }
-
-    function rowToMovement(row) {
+    function rowToMovement(row){
       return {
         id: row.id,
         date: row.running_date,
@@ -381,79 +158,56 @@
         source: row.source || "Network Rail"
       };
     }
-
-    async function loadMovements() {
-      if (!supabaseClient) {
-        setStatus("Supabase is not configured yet. Paste your Supabase URL and anon key into index.html.", false);
-        movements = [];
-        renderAll();
-        return;
-      }
-
-      const { data, error } = await supabaseClient
+    async function loadMovements(){
+      const {data,error}=await supabaseClient
         .from("station_movements")
         .select("*")
-        .eq("station_crs", STATION_CRS)
-        .order("running_date", { ascending: false })
-        .order("actual_time", { ascending: true });
-
-      if (error) {
+        .eq("station_crs",STATION_CRS)
+        .order("running_date",{ascending:false})
+        .order("actual_time",{ascending:true});
+      if(error){
         console.error(error);
-        setStatus(`Supabase load error: ${error.message}`, false);
+        setStatus(`Supabase load error: ${error.message}`,false);
         return;
       }
-
-      movements = (data || []).map(rowToMovement);
-      lastLoadedAt = now24h();
-      setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
+      movements=(data||[]).map(rowToMovement);
+      lastLoadedAt=now24h();
+      setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length===1 ? "" : "s"} loaded.`,true);
       renderAll();
     }
-
-    function getFilteredMovements() {
-      const selectedDate = document.getElementById("dateInput").value;
-      const type = document.getElementById("typeFilter").value;
-
+    function getFilteredMovements(){
+      const selectedDate=document.getElementById("dateInput").value;
+      const type=document.getElementById("typeFilter").value;
       return movements
-        .filter(item => item.date === selectedDate)
-        .filter(item => type === "all" || item.trainType === type)
-        .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+        .filter(item=>item.date===selectedDate)
+        .filter(item=>type==="all" || item.trainType===type)
+        .sort((a,b)=>String(a.time).localeCompare(String(b.time)));
     }
-
-    function getDailyMovements(date) {
-      return movements.filter(item => item.date === date);
+    function getDailyMovements(date){ return movements.filter(item=>item.date===date); }
+    function countByType(items,type){ return items.filter(item=>item.trainType===type).length; }
+    function renderStats(){
+      const selectedDate=document.getElementById("dateInput").value;
+      const daily=getDailyMovements(selectedDate);
+      const freight=countByType(daily,"freight");
+      const passenger=countByType(daily,"passenger");
+      const other=daily.length-freight-passenger;
+      document.getElementById("totalCount").textContent=daily.length;
+      document.getElementById("freightCount").textContent=freight;
+      document.getElementById("passengerCount").textContent=passenger;
+      document.getElementById("otherCount").textContent=other;
+      document.getElementById("tableTitle").textContent=`${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
+      document.getElementById("lastUpdated").textContent=`Last updated: ${lastLoadedAt || "--:--"}`;
     }
-
-    function countByType(items, type) {
-      return items.filter(item => item.trainType === type).length;
-    }
-
-    function renderStats() {
-      const selectedDate = document.getElementById("dateInput").value;
-      const daily = getDailyMovements(selectedDate);
-      const freight = countByType(daily, "freight");
-      const passenger = countByType(daily, "passenger");
-      const other = daily.length - freight - passenger;
-
-      document.getElementById("totalCount").textContent = daily.length;
-      document.getElementById("freightCount").textContent = freight;
-      document.getElementById("passengerCount").textContent = passenger;
-      document.getElementById("otherCount").textContent = other;
-      document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("lastUpdated").textContent = `Last updated: ${lastLoadedAt || "--:--"}`;
-    }
-
-    function renderTable() {
-      const body = document.getElementById("movementBody");
-      const tableWrap = document.getElementById("tableWrap");
-      const emptyState = document.getElementById("emptyState");
-      const rows = getFilteredMovements();
-
-      body.innerHTML = "";
-
-      rows.forEach(item => {
-        const tr = document.createElement("tr");
-        const typeLabel = item.trainType === "freight" ? "Freight" : item.trainType === "passenger" ? "Passenger" : "Other";
-        tr.innerHTML = `
+    function renderTable(){
+      const body=document.getElementById("movementBody");
+      const tableWrap=document.getElementById("tableWrap");
+      const emptyState=document.getElementById("emptyState");
+      const rows=getFilteredMovements();
+      body.innerHTML="";
+      rows.forEach(item=>{
+        const tr=document.createElement("tr");
+        const typeLabel=item.trainType==="freight" ? "Freight" : item.trainType==="passenger" ? "Passenger" : "Other";
+        tr.innerHTML=`
           <td class="time">${escapeHtml(item.time)}</td>
           <td><span class="badge ${escapeHtml(item.trainType)}">${typeLabel}</span></td>
           <td><strong>${escapeHtml(item.trainId)}</strong></td>
@@ -461,56 +215,40 @@
           <td>${escapeHtml(item.destination)}</td>
           <td>${escapeHtml(item.toc)}</td>
           <td>${escapeHtml(item.status)}</td>
-          <td>${escapeHtml(item.source)}</td>
-        `;
+          <td>${escapeHtml(item.source)}</td>`;
         body.appendChild(tr);
       });
-
-      tableWrap.classList.toggle("hidden", rows.length === 0);
-      emptyState.classList.toggle("hidden", rows.length !== 0);
+      tableWrap.classList.toggle("hidden",rows.length===0);
+      emptyState.classList.toggle("hidden",rows.length!==0);
     }
-
-    function renderArchive() {
-      const archive = document.getElementById("archiveList");
-      const dates = [...new Set(movements.map(item => item.date))].sort().reverse().slice(0, 14);
-      archive.innerHTML = "";
-
-      if (!dates.length) {
-        archive.innerHTML = "<p class='empty'>No archived movement days yet.</p>";
+    function renderArchive(){
+      const archive=document.getElementById("archiveList");
+      const dates=[...new Set(movements.map(item=>item.date))].sort().reverse().slice(0,14);
+      archive.innerHTML="";
+      if(!dates.length){
+        archive.innerHTML="<p class='empty'>No archived movement days yet.</p>";
         return;
       }
-
-      dates.forEach(date => {
-        const daily = getDailyMovements(date);
-        const freight = countByType(daily, "freight");
-        const passenger = countByType(daily, "passenger");
-        const div = document.createElement("div");
-        div.className = "archive-item";
-        div.innerHTML = `
-          <span><strong>${formatDate(date)}</strong><br><small>${passenger} passenger / ${freight} freight</small></span>
-          <span class="count">${daily.length}</span>
-        `;
-        div.onclick = () => {
-          document.getElementById("dateInput").value = date;
-          renderAll();
-        };
+      dates.forEach(date=>{
+        const daily=getDailyMovements(date);
+        const freight=countByType(daily,"freight");
+        const passenger=countByType(daily,"passenger");
+        const div=document.createElement("div");
+        div.className="archive-item";
+        div.innerHTML=`<span><strong>${formatDate(date)}</strong><br><small>${passenger} passenger / ${freight} freight</small></span><span class="count">${daily.length}</span>`;
+        div.onclick=()=>{document.getElementById("dateInput").value=date;renderAll();};
         archive.appendChild(div);
       });
     }
-
-    function renderAll() {
-      renderStats();
-      renderTable();
-      renderArchive();
-    }
+    function renderAll(){ renderStats(); renderTable(); renderArchive(); }
 
     document.getElementById("dateInput").value = todayIso();
-    document.getElementById("typeFilter").addEventListener("change", renderAll);
-    document.getElementById("dateInput").addEventListener("change", renderAll);
-    document.getElementById("refreshButton").addEventListener("click", loadMovements);
+    document.getElementById("typeFilter").addEventListener("change",renderAll);
+    document.getElementById("dateInput").addEventListener("change",renderAll);
+    document.getElementById("refreshButton").addEventListener("click",loadMovements);
 
     loadMovements();
-    setInterval(loadMovements, 60000);
+    setInterval(loadMovements,60000);
   </script>
 </body>
 </html>
