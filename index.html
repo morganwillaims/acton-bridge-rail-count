@@ -166,7 +166,7 @@
           <table>
             <thead>
               <tr>
-                <th>Time</th><th>Type</th><th>Train ID</th><th>Origin</th>
+                <th>Time</th><th>Type</th><th>Train ID</th><th>Platform</th><th>Origin</th>
                 <th>Destination</th><th>TOC</th><th>Status</th><th>Source</th>
               </tr>
             </thead>
@@ -231,6 +231,7 @@
         time: row.actual_time || row.planned_time || "--:--",
         trainType: row.train_type || "other",
         trainId: row.train_id || "",
+        platform: row.platform || "",
         origin: row.origin || "Unknown",
         destination: row.destination || "Unknown",
         toc: row.toc || "",
@@ -321,6 +322,7 @@
           <td class="time">${escapeHtml(item.time)}</td>
           <td><span class="badge ${escapeHtml(item.trainType)}">${typeLabel}</span></td>
           <td><strong>${escapeHtml(item.trainId)}</strong></td>
+          <td class="time">${escapeHtml(item.platform || "—")}</td>
           <td>${escapeHtml(item.origin)}</td>
           <td>${escapeHtml(item.destination)}</td>
           <td>${escapeHtml(item.toc)}</td>
