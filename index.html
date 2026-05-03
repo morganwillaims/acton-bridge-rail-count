@@ -410,6 +410,243 @@
       .panel-title { align-items:flex-start; flex-direction:column; }
       .panel-title small { text-align:left; }
     }
+  
+    /* Mobile-friendly layout */
+    @media(max-width:700px) {
+      body {
+        background:linear-gradient(180deg,#1f7580 0%,#0ea9b5 55%,#08a8b5 100%);
+      }
+
+      .page {
+        padding:10px;
+      }
+
+      header {
+        padding:14px;
+        gap:12px;
+        border-left:6px solid var(--teal);
+      }
+
+      .site-logo {
+        width:54px;
+        height:54px;
+        border-radius:10px;
+      }
+
+      h1 {
+        font-size:23px;
+        line-height:1.1;
+      }
+
+      .subtitle {
+        font-size:13px;
+        line-height:1.35;
+      }
+
+      .description-box,
+      .summary-sentence,
+      .controls,
+      .quick-filters,
+      .panel,
+      .stat-card,
+      .hero-card,
+      .mini-card {
+        box-shadow:0 1px 8px rgba(0,0,0,.08);
+      }
+
+      .description-box {
+        padding:12px 14px;
+      }
+
+      .description-box summary h2 {
+        font-size:18px;
+      }
+
+      .description-content {
+        font-size:14px;
+      }
+
+      .top-summary,
+      .mini-grid,
+      .split-grid {
+        grid-template-columns:1fr;
+      }
+
+      .hero-card,
+      .mini-card {
+        padding:13px 14px;
+      }
+
+      .hero-card span,
+      .mini-card span {
+        font-size:15px;
+        line-height:1.35;
+      }
+
+      .controls {
+        grid-template-columns:1fr;
+        padding:12px;
+      }
+
+      input, select, button {
+        font-size:16px;
+        min-height:44px;
+      }
+
+      .quick-filters {
+        position:sticky;
+        top:0;
+        z-index:5;
+        padding:10px;
+        gap:7px;
+      }
+
+      .quick-filter-btn {
+        flex:1 1 calc(50% - 8px);
+        min-height:40px;
+        font-size:13px;
+      }
+
+      .stats-grid {
+        grid-template-columns:repeat(2,1fr);
+        gap:10px;
+      }
+
+      .stat-card {
+        padding:13px;
+      }
+
+      .stat-label {
+        font-size:11px;
+      }
+
+      .stat-value {
+        font-size:28px;
+      }
+
+      .summary-sentence {
+        font-size:14px;
+        padding:12px 14px;
+      }
+
+      .panel-title {
+        padding:12px;
+      }
+
+      .panel-title span {
+        font-size:17px;
+      }
+
+      .panel-title small {
+        font-size:13px;
+        line-height:1.35;
+        text-align:left;
+      }
+
+      .table-wrap {
+        overflow:visible;
+      }
+
+      table {
+        min-width:0;
+        width:100%;
+        border-collapse:separate;
+        border-spacing:0 10px;
+        font-size:14px;
+      }
+
+      thead {
+        display:none;
+      }
+
+      tbody,
+      tr,
+      td {
+        display:block;
+        width:100%;
+      }
+
+      tr {
+        background:rgba(231,245,248,.98);
+        border:1px solid var(--line);
+        border-left:5px solid var(--teal);
+        box-shadow:0 1px 6px rgba(0,0,0,.08);
+        margin-bottom:10px;
+      }
+
+      td {
+        display:grid;
+        grid-template-columns:112px minmax(0,1fr);
+        gap:10px;
+        align-items:center;
+        background:transparent;
+        border-bottom:1px solid rgba(200,221,224,.75);
+        padding:8px 10px;
+        white-space:normal;
+        font-size:14px;
+      }
+
+      td:last-child {
+        border-bottom:none;
+      }
+
+      td::before {
+        content:attr(data-label);
+        font-style:normal;
+        font-weight:bold;
+        color:#475569;
+        text-align:left;
+      }
+
+      td.time {
+        text-align:left;
+      }
+
+      td:nth-child(3) strong {
+        font-size:18px;
+      }
+
+      td:nth-child(5),
+      td:nth-child(6) {
+        font-weight:700;
+      }
+
+      .badge,
+      .source-chip {
+        width:max-content;
+      }
+
+      .confidence {
+        gap:4px;
+      }
+
+      .confidence span {
+        font-size:11px;
+      }
+
+      .side-list {
+        padding:12px;
+      }
+
+      .archive-item {
+        font-size:14px;
+      }
+    }
+
+    @media(max-width:420px) {
+      .stats-grid {
+        grid-template-columns:1fr;
+      }
+
+      td {
+        grid-template-columns:96px minmax(0,1fr);
+      }
+
+      .quick-filter-btn {
+        flex-basis:100%;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -589,6 +826,14 @@
         .replaceAll("'","&#039;");
     }
 
+
+    function displayLocationName(value){
+      const text = String(value || "").trim();
+      if(!text || text === "null" || text === "undefined") return "Unknown";
+      if(/^\d{4,}$/.test(text)) return "Unknown";
+      return text;
+    }
+
     function usefulText(value){
       return value && value !== "Unknown" && value !== "—";
     }
@@ -740,83 +985,89 @@
       return true;
     }
 
+
     async function loadNextScheduledService(){
       const box = document.getElementById("nextServiceBox");
       if(!box) return;
 
-      const selectedDate = document.getElementById("dateInput").value || todayIso();
-      const today = todayIso();
+      try {
+        const selectedDate = document.getElementById("dateInput").value || todayIso();
+        const today = todayIso();
 
-      // Only show "next" for the current local date. For archive dates, this would be misleading.
-      if(selectedDate !== today){
-        box.textContent = "Select Today to see the next scheduled service.";
-        return;
-      }
+        if(selectedDate !== today){
+          box.textContent = "Select Today to see the next scheduled service.";
+          return;
+        }
 
-      box.textContent = "Checking schedule...";
+        box.textContent = "Checking schedule...";
 
-      const { data, error } = await supabaseClient
-        .from("schedule_locations")
-        .select(`
-          pass_time,
-          departure,
-          arrival,
-          platform,
-          signalling_id,
-          schedule_services (
+        const { data, error } = await supabaseClient
+          .from("schedule_locations")
+          .select(`
+            pass_time,
+            departure,
+            arrival,
+            platform,
             signalling_id,
-            origin_name,
-            destination_name,
-            atoc_code,
-            schedule_start_date,
-            schedule_end_date,
-            days_runs
-          )
-        `)
-        .eq("tiploc", "ACBG")
-        .limit(2500);
+            schedule_services (
+              signalling_id,
+              origin_name,
+              destination_name,
+              atoc_code,
+              schedule_start_date,
+              schedule_end_date,
+              days_runs
+            )
+          `)
+          .eq("tiploc", "ACBG")
+          .limit(3000);
 
-      if(error){
-        console.error(error);
+        if(error){
+          console.error("Next service schedule error:", error);
+          box.textContent = "Schedule unavailable";
+          return;
+        }
+
+        const nowMinutes = localMinutesNow();
+
+        const upcoming = (data || [])
+          .map(row => {
+            const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
+            const bookedTime = row.pass_time || row.departure || row.arrival;
+            const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
+
+            return {
+              headcode: row.signalling_id || service?.signalling_id || "Unknown",
+              bookedTime,
+              bookedMinutes,
+              platform: row.platform || "—",
+              origin: displayLocationName(service?.origin_name),
+              destination: displayLocationName(service?.destination_name),
+              toc: service?.atoc_code || "",
+              service
+            };
+          })
+          .filter(item => item.bookedMinutes !== null)
+          .filter(item => item.bookedMinutes >= nowMinutes)
+          .filter(item => activeScheduleOnDate(item.service, selectedDate))
+          .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
+
+        if(!upcoming.length){
+          box.textContent = "No more scheduled services found today";
+          return;
+        }
+
+        const next = upcoming[0];
+        const platformText = next.platform && next.platform !== "—" ? ` · Platform ${next.platform}` : "";
+
+        box.textContent =
+          `${displayScheduleTime(next.bookedTime)} — ${next.headcode} — ${next.origin} to ${next.destination}${platformText}`;
+      } catch (err) {
+        console.error("Next service box failed:", err);
         box.textContent = "Schedule unavailable";
-        return;
       }
-
-      const nowMinutes = localMinutesNow();
-
-      const upcoming = (data || [])
-        .map(row => {
-          const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
-          const bookedTime = row.pass_time || row.departure || row.arrival;
-          const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
-
-          return {
-            headcode: row.signalling_id || service?.signalling_id || "Unknown",
-            bookedTime,
-            bookedMinutes,
-            platform: row.platform || "—",
-            origin: displayLocationName(service?.origin_name),
-            destination: displayLocationName(service?.destination_name),
-            toc: service?.atoc_code || "",
-            service
-          };
-        })
-        .filter(item => item.bookedMinutes !== null)
-        .filter(item => item.bookedMinutes >= nowMinutes)
-        .filter(item => activeScheduleOnDate(item.service, selectedDate))
-        .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
-
-      if(!upcoming.length){
-        box.textContent = "No more scheduled services found today";
-        return;
-      }
-
-      const next = upcoming[0];
-      const platformText = next.platform && next.platform !== "—" ? ` · Platform ${next.platform}` : "";
-
-      box.textContent =
-        `${displayScheduleTime(next.bookedTime)} — ${next.headcode} — ${next.origin} to ${next.destination}${platformText}`;
     }
+
 
     async function loadMovements(){
       const {data,error}=await supabaseClient
@@ -927,16 +1178,16 @@
         const typeLabel=displayTrainType(item.trainType,item.trainId);
 
         tr.innerHTML=`
-          <td class="time">${escapeHtml(item.time)}</td>
-          <td><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
-          <td><strong>${escapeHtml(item.trainId)}</strong></td>
-          <td class="time">${escapeHtml(item.platform || "—")}</td>
-          <td>${escapeHtml(item.origin || "Unknown")}</td>
-          <td>${escapeHtml(item.destination || "Unknown")}</td>
-          <td>${escapeHtml(item.toc || "")}</td>
-          <td>${escapeHtml(item.status || "Passed")}</td>
-          <td><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
-          <td>${confidenceHtml(item)}</td>
+          <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
+          <td data-label="Type"><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
+          <td data-label="Train ID"><strong>${escapeHtml(item.trainId)}</strong></td>
+          <td data-label="Platform" class="time">${escapeHtml(item.platform || "—")}</td>
+          <td data-label="Origin">${escapeHtml(item.origin || "Unknown")}</td>
+          <td data-label="Destination">${escapeHtml(item.destination || "Unknown")}</td>
+          <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
+          <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
+          <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
+          <td data-label="Data confidence">${confidenceHtml(item)}</td>
         `;
 
         body.appendChild(tr);
