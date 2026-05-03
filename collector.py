@@ -39,12 +39,39 @@ signal.signal(signal.SIGTERM, stop_gracefully)
 signal.signal(signal.SIGINT, stop_gracefully)
 
 
-def classify_train(train_id: str) -> str:
-    """Rough GB headcode classification."""
-    if not train_id:
+def extract_headcode(raw_train_id: str) -> str:
+    """
+    Network Rail TRUST train_id is often a 10-character internal ID.
+    Example: 351K201903 contains public headcode 1K20 at positions 3-6.
+    This function extracts that public-style headcode when possible.
+    """
+    value = str(raw_train_id or "").strip().upper()
+
+    # Already looks like a public headcode, e.g. 1K20, 6M89.
+    if len(value) == 4 and value[0].isdigit() and value[1].isalpha():
+        return value
+
+    # TRUST internal IDs often include the headcode at characters 3-6.
+    # Example: 351K201903 -> 1K20
+    if len(value) >= 6:
+        candidate = value[2:6]
+        if len(candidate) == 4 and candidate[0].isdigit() and candidate[1].isalpha():
+            return candidate
+
+    return value
+
+
+def classify_train(display_headcode: str) -> str:
+    """
+    Rough GB headcode classification using public-style headcode.
+    4/6/7/8 normally indicate freight or non-passenger.
+    1/2/9 normally indicate passenger.
+    3/5 usually ECS/stock/non-passenger, so keep as other for now.
+    """
+    if not display_headcode:
         return "other"
 
-    first = train_id[0]
+    first = display_headcode[0]
 
     if first in {"4", "6", "7", "8"}:
         return "freight"
@@ -116,7 +143,9 @@ class TrainMovementListener(stomp.ConnectionListener):
             if loc_stanox != ACTON_BRIDGE_STANOX:
                 continue
 
-            train_id = str(message.get("train_id") or "").strip()
+            raw_train_id = str(message.get("train_id") or "").strip()
+            display_headcode = extract_headcode(raw_train_id)
+
             event_type = str(message.get("event_type") or "PASS").strip()
             running_date, actual_time = trust_time_to_date_and_hhmm(message.get("actual_timestamp"))
 
@@ -125,8 +154,8 @@ class TrainMovementListener(stomp.ConnectionListener):
                 "station_crs": ACTON_BRIDGE_CRS,
                 "station_tiploc": ACTON_BRIDGE_TIPLOC,
                 "station_stanox": ACTON_BRIDGE_STANOX,
-                "train_id": train_id,
-                "train_type": classify_train(train_id),
+                "train_id": display_headcode,
+                "train_type": classify_train(display_headcode),
                 "origin": None,
                 "destination": None,
                 "toc": None,
@@ -136,10 +165,18 @@ class TrainMovementListener(stomp.ConnectionListener):
                 "event_type": event_type,
                 "status": "Passed",
                 "source": "Network Rail TRUST",
-                "raw": message,
+                "raw": {
+                    **message,
+                    "_raw_train_id": raw_train_id,
+                    "_display_headcode": display_headcode,
+                },
             }
 
-            print(f"CAPTURED {actual_time} {train_id} {row['train_type']} through Acton Bridge", flush=True)
+            print(
+                f"CAPTURED {actual_time} raw={raw_train_id} headcode={display_headcode} "
+                f"{row['train_type']} through Acton Bridge",
+                flush=True,
+            )
             if insert_movement(row):
                 captured_count += 1
 
