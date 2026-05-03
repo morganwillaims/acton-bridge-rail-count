@@ -643,6 +643,15 @@
       `;
     }
 
+
+    function displayLocationName(value){
+      const text = String(value || "").trim();
+      if(!text || text === "null" || text === "undefined") return "Unknown";
+      // Hide NALCO/accounting-style numeric codes such as 224600 and 124300.
+      if(/^\d{4,}$/.test(text)) return "Unknown";
+      return text;
+    }
+
     function rowToMovement(row){
       return {
         id: row.id,
@@ -651,8 +660,8 @@
         trainType: row.train_type || "other",
         trainId: row.train_id || "",
         platform: row.platform || "",
-        origin: row.origin || "Unknown",
-        destination: row.destination || "Unknown",
+        origin: displayLocationName(row.origin),
+        destination: displayLocationName(row.destination),
         toc: row.toc || "",
         status: row.status || "Passed",
         source: row.source || "Network Rail"
@@ -825,8 +834,8 @@
           <td><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
           <td><strong>${escapeHtml(item.trainId)}</strong></td>
           <td class="time">${escapeHtml(item.platform || "—")}</td>
-          <td>${escapeHtml(item.origin || "Unknown")}</td>
-          <td>${escapeHtml(item.destination || "Unknown")}</td>
+          <td>${escapeHtml(displayLocationName(item.origin))}</td>
+          <td>${escapeHtml(displayLocationName(item.destination))}</td>
           <td>${escapeHtml(item.toc || "")}</td>
           <td>${escapeHtml(item.status || "Passed")}</td>
           <td><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
