@@ -13,7 +13,7 @@
       --passenger:#075985; --warning:#92400e;
     }
     *{box-sizing:border-box}
-    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#1f7580 0%,#0ea9b5 48%,#08a8b5 100%);color:var(--text);min-height:100vh}
     .page{max-width:1280px;margin:0 auto;padding:18px}
     header{background:var(--card);border-left:10px solid var(--teal);padding:18px 20px;margin-bottom:16px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
     h1{margin:0 0 6px;font-size:30px}
@@ -50,6 +50,84 @@
     .archive-item:hover{color:var(--teal-dark)}
     .empty{padding:28px;text-align:center;color:var(--muted)}
     .hidden{display:none!important}
+
+    .top-summary {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .hero-card {
+      background: rgba(255,255,255,.96);
+      padding: 16px 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      border-left: 6px solid var(--teal);
+      line-height: 1.45;
+    }
+    .hero-card strong {
+      display: block;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+    .hero-card span {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .quick-filters {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      background: rgba(255,255,255,.96);
+      padding: 12px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    }
+    .quick-filter-btn {
+      width: auto;
+      padding: 8px 12px;
+      background: #475569;
+      border-radius: 999px;
+      font-size: 14px;
+    }
+    .quick-filter-btn.active {
+      background: var(--teal);
+    }
+    .summary-sentence {
+      background: rgba(255,255,255,.96);
+      border-left: 6px solid var(--teal);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.06);
+      font-weight: bold;
+      line-height: 1.45;
+    }
+    .confidence {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      font-style: normal;
+    }
+    .confidence span {
+      display: inline-block;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      color: #374151;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .confidence .ok {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .confidence .pending {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
     @media(max-width:900px){.controls,.stats-grid,.split-grid{grid-template-columns:1fr}table{min-width:780px}}
   </style>
 </head>
@@ -61,6 +139,22 @@
     </header>
 
     <div class="notice" id="statusNotice">Loading Acton Bridge movement data...</div>
+
+
+    <section class="top-summary">
+      <div class="hero-card">
+        <strong>Latest train captured</strong>
+        <span id="heroLatestTrain">None yet</span>
+      </div>
+      <div class="hero-card">
+        <strong>Today summary</strong>
+        <span id="heroTodaySummary">Waiting for live data</span>
+      </div>
+      <div class="hero-card">
+        <strong>Origin/destination status</strong>
+        <span id="heroEnrichmentStatus">Schedule matching pending</span>
+      </div>
+    </section>
 
     <section class="controls">
       <label>Date
@@ -80,11 +174,23 @@
       <button id="refreshButton">Refresh</button>
     </section>
 
+    <section class="quick-filters">
+      <button class="quick-filter-btn active" data-filter="all">All</button>
+      <button class="quick-filter-btn" data-filter="passenger">Passenger</button>
+      <button class="quick-filter-btn" data-filter="freight">Freight</button>
+      <button class="quick-filter-btn" data-filter="other">ECS / Other</button>
+    </section>
+
     <section class="stats-grid">
       <div class="stat-card"><div class="stat-label">Total trains</div><div class="stat-value" id="totalCount">0</div></div>
       <div class="stat-card"><div class="stat-label">Passenger</div><div class="stat-value" id="passengerCount">0</div></div>
       <div class="stat-card"><div class="stat-label">Freight</div><div class="stat-value" id="freightCount">0</div></div>
       <div class="stat-card"><div class="stat-label">Other</div><div class="stat-value" id="otherCount">0</div></div>
+    </section>
+
+
+    <section class="summary-sentence" id="dailySummarySentence">
+      Waiting for Acton Bridge movement data.
     </section>
 
     <section class="split-grid">
@@ -98,8 +204,8 @@
           <table>
             <thead>
               <tr>
-                <th>Time</th><th>Type</th><th>Train ID</th><th>Origin</th>
-                <th>Destination</th><th>TOC</th><th>Status</th><th>Source</th>
+                <th>Time</th><th>Type</th><th>Train ID</th><th>Platform</th><th>Origin</th>
+                <th>Destination</th><th>TOC</th><th>Status</th><th>Source</th><th>Data confidence</th>
               </tr>
             </thead>
             <tbody id="movementBody"></tbody>
@@ -139,6 +245,37 @@
         .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
         .replaceAll('"',"&quot;").replaceAll("'","&#039;");
     }
+
+    function displayTrainType(type, trainId){
+      if(type === "freight") return "Freight";
+      if(type === "passenger") return "Passenger";
+      if(trainId && String(trainId).startsWith("5")) return "ECS / Stock";
+      if(trainId && String(trainId).startsWith("3")) return "ECS / Stock";
+      if(type === "other") return "ECS / Other";
+      return "Unknown";
+    }
+
+    function confidenceHtml(item){
+      const headcodeOk = item.trainId && item.trainId.length === 4;
+      const platformOk = usefulText(item.platform);
+      const odOk = usefulText(item.origin) && usefulText(item.destination);
+      return `
+        <div class="confidence">
+          <span class="${headcodeOk ? "ok" : "pending"}">Headcode ${headcodeOk ? "OK" : "pending"}</span>
+          <span class="${platformOk ? "ok" : "pending"}">Platform ${platformOk ? "OK" : "pending"}</span>
+          <span class="${odOk ? "ok" : "pending"}">Route ${odOk ? "OK" : "pending"}</span>
+        </div>
+      `;
+    }
+
+    function countDisplayType(items, label){
+      return items.filter(item => displayTrainType(item.trainType, item.trainId) === label).length;
+    }
+
+    function newestMovementForDate(items){
+      return items.slice().sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
+    }
+
     function setStatus(message,ok=false){
       const notice=document.getElementById("statusNotice");
       notice.textContent=message;
@@ -228,6 +365,31 @@
         });
 
       return result;
+
+      const latestVisible = newestMovementForDate(daily);
+      const passengerDisplay = countByType(daily, "passenger");
+      const freightDisplay = countByType(daily, "freight");
+      const ecsOtherDisplay = daily.length - passengerDisplay - freightDisplay;
+      const enrichedRows = daily.filter(item => usefulText(item.origin) && usefulText(item.destination)).length;
+
+      document.getElementById("heroTodaySummary").textContent =
+        `${daily.length} movement${daily.length === 1 ? "" : "s"}: ${passengerDisplay} passenger, ${freightDisplay} freight, ${ecsOtherDisplay} ECS/other`;
+
+      document.getElementById("dailySummarySentence").textContent =
+        `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passengerDisplay} passenger, ${freightDisplay} freight and ${ecsOtherDisplay} ECS/other.`;
+
+      if (latestVisible) {
+        document.getElementById("heroLatestTrain").textContent =
+          `${latestVisible.time} — ${latestVisible.trainId} — ${displayTrainType(latestVisible.trainType, latestVisible.trainId)}`;
+      } else {
+        document.getElementById("heroLatestTrain").textContent = "None yet";
+      }
+
+      document.getElementById("heroEnrichmentStatus").textContent =
+        enrichedRows > 0
+          ? `${enrichedRows} movement${enrichedRows === 1 ? "" : "s"} matched to origin/destination`
+          : "Origin/destination matching pending";
+
     }
 
     async function loadMovements(){
@@ -278,7 +440,7 @@
       body.innerHTML="";
       rows.forEach(item=>{
         const tr=document.createElement("tr");
-        const typeLabel=item.trainType==="freight" ? "Freight" : item.trainType==="passenger" ? "Passenger" : "Other";
+        const typeLabel=displayTrainType(item.trainType, item.trainId);
         tr.innerHTML=`
           <td class="time">${escapeHtml(item.time)}</td>
           <td><span class="badge ${escapeHtml(item.trainType)}">${typeLabel}</span></td>
@@ -287,7 +449,8 @@
           <td>${escapeHtml(item.destination)}</td>
           <td>${escapeHtml(item.toc)}</td>
           <td>${escapeHtml(item.status)}</td>
-          <td>${escapeHtml(item.source)}</td>`;
+          <td><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
+          <td>${confidenceHtml(item)}</td>`;
         body.appendChild(tr);
       });
       tableWrap.classList.toggle("hidden",rows.length===0);
@@ -318,6 +481,24 @@
     document.getElementById("typeFilter").addEventListener("change",renderAll);
     document.getElementById("dateInput").addEventListener("change",renderAll);
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
+
+
+    document.querySelectorAll(".quick-filter-btn").forEach(button=>{
+      button.addEventListener("click",()=>{
+        const filter = button.dataset.filter;
+        document.getElementById("typeFilter").value = filter;
+        document.querySelectorAll(".quick-filter-btn").forEach(btn=>btn.classList.remove("active"));
+        button.classList.add("active");
+        renderAll();
+      });
+    });
+
+    document.getElementById("typeFilter").addEventListener("change",()=>{
+      const selected = document.getElementById("typeFilter").value;
+      document.querySelectorAll(".quick-filter-btn").forEach(btn=>{
+        btn.classList.toggle("active", btn.dataset.filter === selected);
+      });
+    });
 
     loadMovements();
     setInterval(loadMovements,60000);
