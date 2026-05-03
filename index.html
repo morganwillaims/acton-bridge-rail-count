@@ -18,6 +18,7 @@
       --freight:#7c2d12;
       --passenger:#075985;
       --warning:#92400e;
+      --box-shadow-soft:0 4px 16px rgba(0,0,0,.14);
     }
 
     * { box-sizing:border-box; }
@@ -41,7 +42,7 @@
       border-left:10px solid var(--teal);
       padding:18px 20px;
       margin-bottom:16px;
-      box-shadow:0 2px 12px rgba(0,0,0,.08);
+      box-shadow:var(--box-shadow-soft);
       display:flex;
       align-items:center;
       gap:16px;
@@ -72,6 +73,7 @@
       font-weight:bold;
       margin-bottom:16px;
       line-height:1.4;
+      box-shadow:var(--box-shadow-soft);
     }
 
     .notice.ok {
@@ -82,7 +84,8 @@
 
     .description-box, .summary-sentence, .controls, .quick-filters, .panel, .stat-card, .hero-card {
       background:rgba(255,255,255,.96);
-      box-shadow:0 2px 12px rgba(0,0,0,.08);
+      box-shadow:var(--box-shadow-soft);
+      border:1px solid rgba(255,255,255,.45);
     }
 
     .description-box {
@@ -252,8 +255,9 @@
 
     .mini-card {
       background:rgba(255,255,255,.96);
+      border:1px solid rgba(255,255,255,.45);
       padding:14px;
-      box-shadow:0 2px 12px rgba(0,0,0,.06);
+      box-shadow:var(--box-shadow-soft);
       border-left:5px solid var(--teal);
       line-height:1.4;
     }
@@ -451,7 +455,7 @@
       .stat-card,
       .hero-card,
       .mini-card {
-        box-shadow:0 1px 8px rgba(0,0,0,.08);
+        box-shadow:0 3px 12px rgba(0,0,0,.12);
       }
 
       .description-box {
