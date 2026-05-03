@@ -201,6 +201,16 @@
 
     button:hover { background:var(--teal-dark); }
     .secondary-button { background:#475569; }
+    .today-button {
+      background:#7ed957;
+      color:#102a12;
+      border:1px solid rgba(35,134,54,.35);
+      box-shadow:0 2px 8px rgba(0,0,0,.12);
+    }
+    .today-button:hover {
+      background:#6fca4e;
+      color:#071b08;
+    }
 
     .quick-filters {
       display:flex;
@@ -716,6 +726,7 @@
           <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li>The tool currently records trains after they are reported; it does not predict future workings yet.</li>
+          <li><strong>Today uses UK time</strong> via Europe/London, so it changes date correctly at UK midnight.</li>
           <li><strong>Next service</strong> uses the booked schedule for trains due to pass Acton Bridge today. Live running may still differ.</li>
         </ul>
       </div>
@@ -751,7 +762,7 @@
           <option value="other">ECS / Other</option>
         </select>
       </label>
-      <button class="secondary-button" id="todayButton">Today</button>
+      <button class="today-button" id="todayButton">Today</button>
       <button id="refreshButton">Refresh</button>
     </section>
 
@@ -843,16 +854,29 @@
     let movements = [];
     let lastLoadedAt = null;
 
-    function todayIso(){ return new Date().toISOString().slice(0,10); }
+    function todayIso(){
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(new Date());
 
-    function formatDate(dateString){
-      if(!dateString) return "selected date";
-      const [year,month,day]=dateString.split("-");
-      return `${day}/${month}/${year}`;
+      const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      return `${lookup.year}-${lookup.month}-${lookup.day}`;
+    }
+
+    function ukNow24h(){
+      return new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).format(new Date());
     }
 
     function now24h(){
-      return new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",hour12:false});
+      return ukNow24h();
     }
 
     function escapeHtml(value){
@@ -1280,7 +1304,8 @@
     document.getElementById("dateInput").addEventListener("change",renderAll);
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
     document.getElementById("todayButton").addEventListener("click",()=>{
-      document.getElementById("dateInput").value=todayIso();
+      if(typeof userPickedArchiveDate !== "undefined") userPickedArchiveDate = false;
+      document.getElementById("dateInput").value = todayIso();
       renderAll();
       loadNextScheduledService();
     });
