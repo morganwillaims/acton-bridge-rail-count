@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Acton Bridge Rail Count</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --teal: #087f8c;
@@ -62,6 +63,12 @@
       font-weight: bold;
       margin-bottom: 16px;
       line-height: 1.4;
+    }
+
+    .notice.ok {
+      background: #ecfdf5;
+      border-color: #bbf7d0;
+      color: #166534;
     }
 
     .controls, .stats-grid, .split-grid {
@@ -201,9 +208,7 @@
     .badge.passenger { background: #e0f2fe; color: var(--passenger); }
     .badge.other { background: #f3f4f6; color: #374151; }
 
-    .side-list {
-      padding: 14px;
-    }
+    .side-list { padding: 14px; }
 
     .archive-item {
       display: flex;
@@ -212,9 +217,11 @@
       padding: 10px 0;
       border-bottom: 1px solid #e5e7eb;
       font-size: 14px;
+      cursor: pointer;
     }
 
     .archive-item:last-child { border-bottom: none; }
+    .archive-item:hover { color: var(--teal-dark); }
 
     .empty {
       padding: 28px;
@@ -234,12 +241,10 @@
   <div class="page">
     <header>
       <h1>Acton Bridge Rail Count</h1>
-      <p class="subtitle">Daily train movement counts for Acton Bridge, including freight workings and last updated time.</p>
+      <p class="subtitle">Daily train movement counts for Acton Bridge [ACB], including freight workings and last updated time.</p>
     </header>
 
-    <div class="notice" id="statusNotice">
-      Prototype mode: this page is currently using sample data. The next step is connecting the collector to real Network Rail / rail movement data and saving it to Supabase.
-    </div>
+    <div class="notice" id="statusNotice">Loading Acton Bridge movement data...</div>
 
     <section class="controls">
       <label>Date
@@ -315,98 +320,22 @@
   </div>
 
   <script>
-    // ----------------------------------------------------------------------
-    // ACTON BRIDGE RAIL COUNT — VERSION 1 FRONT END
-    // ----------------------------------------------------------------------
-    // This is the first working front-end prototype.
-    // It currently uses sampleData below.
-    // Later we will replace sampleData with Supabase reads.
-    // ----------------------------------------------------------------------
+    // 1) Replace these with your Supabase project details.
+    // The anon key is safe in front-end code as long as Row Level Security is enabled.
+    const SUPABASE_URL = "PASTE_YOUR_SUPABASE_URL_HERE";
+    const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
 
     const STATION_CRS = "ACB";
     const STATION_NAME = "Acton Bridge";
+    const STATION_TIPLOC = "ACBG";
+    const STATION_STANOX = "37001";
 
-    const sampleData = [
-      {
-        date: "2026-05-04",
-        time: "03:42",
-        trainType: "freight",
-        trainId: "6E36",
-        origin: "Liverpool Biomass Tml Gbf",
-        destination: "Drax Aes (Gbrf)",
-        toc: "ZZ",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-04",
-        time: "04:18",
-        trainType: "freight",
-        trainId: "4H72",
-        origin: "Arpley Sidings",
-        destination: "Trafford Park Euro Terminal",
-        toc: "ZZ",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-04",
-        time: "05:43",
-        trainType: "passenger",
-        trainId: "5V33",
-        origin: "Crewe C.S.",
-        destination: "Manchester Piccadilly",
-        toc: "AW",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-04",
-        time: "06:50",
-        trainType: "passenger",
-        trainId: "5K37",
-        origin: "Edge Hill Depot",
-        destination: "Crewe",
-        toc: "VT",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-04",
-        time: "16:09",
-        trainType: "freight",
-        trainId: "6M89",
-        origin: "Kings Lynn T.C.",
-        destination: "Ravenhead Sdgs",
-        toc: "ZZ",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-03",
-        time: "04:01",
-        trainType: "freight",
-        trainId: "6E36",
-        origin: "Liverpool Biomass Tml Gbf",
-        destination: "Drax Aes (Gbrf)",
-        toc: "ZZ",
-        status: "Passed",
-        source: "Sample"
-      },
-      {
-        date: "2026-05-03",
-        time: "07:22",
-        trainType: "passenger",
-        trainId: "1F12",
-        origin: "Liverpool Lime Street",
-        destination: "Birmingham New Street",
-        toc: "VT",
-        status: "Passed",
-        source: "Sample"
-      }
-    ];
+    const supabaseClient = SUPABASE_URL.startsWith("https://")
+      ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
 
-    let movements = sampleData;
+    let movements = [];
+    let lastLoadedAt = null;
 
     function todayIso() {
       return new Date().toISOString().slice(0, 10);
@@ -432,6 +361,54 @@
         .replaceAll("'", "&#039;");
     }
 
+    function setStatus(message, ok = false) {
+      const notice = document.getElementById("statusNotice");
+      notice.textContent = message;
+      notice.className = ok ? "notice ok" : "notice";
+    }
+
+    function rowToMovement(row) {
+      return {
+        id: row.id,
+        date: row.running_date,
+        time: row.actual_time || row.planned_time || "--:--",
+        trainType: row.train_type || "other",
+        trainId: row.train_id || "",
+        origin: row.origin || "Unknown",
+        destination: row.destination || "Unknown",
+        toc: row.toc || "",
+        status: row.status || "Passed",
+        source: row.source || "Network Rail"
+      };
+    }
+
+    async function loadMovements() {
+      if (!supabaseClient) {
+        setStatus("Supabase is not configured yet. Paste your Supabase URL and anon key into index.html.", false);
+        movements = [];
+        renderAll();
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from("station_movements")
+        .select("*")
+        .eq("station_crs", STATION_CRS)
+        .order("running_date", { ascending: false })
+        .order("actual_time", { ascending: true });
+
+      if (error) {
+        console.error(error);
+        setStatus(`Supabase load error: ${error.message}`, false);
+        return;
+      }
+
+      movements = (data || []).map(rowToMovement);
+      lastLoadedAt = now24h();
+      setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
+      renderAll();
+    }
+
     function getFilteredMovements() {
       const selectedDate = document.getElementById("dateInput").value;
       const type = document.getElementById("typeFilter").value;
@@ -439,7 +416,7 @@
       return movements
         .filter(item => item.date === selectedDate)
         .filter(item => type === "all" || item.trainType === type)
-        .sort((a, b) => a.time.localeCompare(b.time));
+        .sort((a, b) => String(a.time).localeCompare(String(b.time)));
     }
 
     function getDailyMovements(date) {
@@ -462,7 +439,7 @@
       document.getElementById("passengerCount").textContent = passenger;
       document.getElementById("otherCount").textContent = other;
       document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("lastUpdated").textContent = `Last updated: ${now24h()}`;
+      document.getElementById("lastUpdated").textContent = `Last updated: ${lastLoadedAt || "--:--"}`;
     }
 
     function renderTable() {
@@ -495,8 +472,13 @@
 
     function renderArchive() {
       const archive = document.getElementById("archiveList");
-      const dates = [...new Set(movements.map(item => item.date))].sort().reverse();
+      const dates = [...new Set(movements.map(item => item.date))].sort().reverse().slice(0, 14);
       archive.innerHTML = "";
+
+      if (!dates.length) {
+        archive.innerHTML = "<p class='empty'>No archived movement days yet.</p>";
+        return;
+      }
 
       dates.forEach(date => {
         const daily = getDailyMovements(date);
@@ -516,28 +498,19 @@
       });
     }
 
-    async function refreshData() {
-      // Version 1: sample data only.
-      // Version 2 will replace this with Supabase loading:
-      // const { data, error } = await supabase.from("station_movements").select("*").eq("station_crs", "ACB");
-      renderAll();
-    }
-
     function renderAll() {
       renderStats();
       renderTable();
       renderArchive();
     }
 
-    document.getElementById("dateInput").value = "2026-05-04";
+    document.getElementById("dateInput").value = todayIso();
     document.getElementById("typeFilter").addEventListener("change", renderAll);
     document.getElementById("dateInput").addEventListener("change", renderAll);
-    document.getElementById("refreshButton").addEventListener("click", refreshData);
+    document.getElementById("refreshButton").addEventListener("click", loadMovements);
 
-    renderAll();
-
-    // Auto refresh the visible page every 60 seconds.
-    setInterval(refreshData, 60000);
+    loadMovements();
+    setInterval(loadMovements, 60000);
   </script>
 </body>
 </html>
