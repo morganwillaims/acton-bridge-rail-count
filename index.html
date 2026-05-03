@@ -198,13 +198,6 @@
 
     button:hover { background:var(--teal-dark); }
     .secondary-button { background:#475569; }
-    .today-button {
-      background:#2fb344;
-      color:white;
-    }
-    .today-button:hover {
-      background:#238636;
-    }
 
     .quick-filters {
       display:flex;
@@ -339,12 +332,12 @@
       font-style:italic;
     }
 
-td:nth-child(5),
-td:nth-child(6) {
-  font-weight: 700;
-    }
-
     tr:hover td { background:#dff0f4; }
+
+    td:nth-child(5),
+    td:nth-child(6) {
+      font-weight:700;
+    }
 
     .time, .count { text-align:right; font-weight:bold; }
 
@@ -449,7 +442,6 @@ td:nth-child(6) {
           <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li>The tool currently records trains after they are reported; it does not predict future workings yet.</li>
-          <li><strong>Today</strong> uses your computer’s local date, so after midnight it moves onto the new day automatically unless you have manually selected an archive date.</li>
         </ul>
       </div>
     </details>
@@ -484,7 +476,7 @@ td:nth-child(6) {
           <option value="other">ECS / Other</option>
         </select>
       </label>
-      <button class="today-button" id="todayButton">Today</button>
+      <button class="secondary-button" id="todayButton">Today</button>
       <button id="refreshButton">Refresh</button>
     </section>
 
@@ -514,8 +506,8 @@ td:nth-child(6) {
         <span id="latestMovement">None yet</span>
       </div>
       <div class="mini-card">
-        <strong>Data note</strong>
-        <span>Records trains after Network Rail TRUST reports them. It does not predict future workings yet.</span>
+        <strong>Next scheduled service</strong>
+        <span id="nextServiceBox">Checking schedule...</span>
       </div>
     </section>
 
@@ -575,15 +567,8 @@ td:nth-child(6) {
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     let movements = [];
     let lastLoadedAt = null;
-    let userPickedArchiveDate = false;
 
-    function todayIso(){
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, "0");
-      const day = String(now.getDate()).padStart(2, "0");
-      return `${year}-${month}-${day}`;
-    }
+    function todayIso(){ return new Date().toISOString().slice(0,10); }
 
     function formatDate(dateString){
       if(!dateString) return "selected date";
@@ -648,15 +633,6 @@ td:nth-child(6) {
       `;
     }
 
-
-    function displayLocationName(value){
-      const text = String(value || "").trim();
-      if(!text || text === "null" || text === "undefined") return "Unknown";
-      // Hide NALCO/accounting-style numeric codes such as 224600 and 124300.
-      if(/^\d{4,}$/.test(text)) return "Unknown";
-      return text;
-    }
-
     function rowToMovement(row){
       return {
         id: row.id,
@@ -665,8 +641,8 @@ td:nth-child(6) {
         trainType: row.train_type || "other",
         trainId: row.train_id || "",
         platform: row.platform || "",
-        origin: displayLocationName(row.origin),
-        destination: displayLocationName(row.destination),
+        origin: row.origin || "Unknown",
+        destination: row.destination || "Unknown",
         toc: row.toc || "",
         status: row.status || "Passed",
         source: row.source || "Network Rail"
@@ -724,6 +700,124 @@ td:nth-child(6) {
       return result;
     }
 
+
+    function parseScheduleTimeToMinutes(value){
+      if(!value) return null;
+      const text = String(value).trim().replace(":", "").replace("H", "").slice(0,4);
+      if(text.length < 4 || !/^\d{4}$/.test(text)) return null;
+      return Number(text.slice(0,2)) * 60 + Number(text.slice(2,4));
+    }
+
+    function displayScheduleTime(value){
+      const minutes = parseScheduleTimeToMinutes(value);
+      if(minutes === null) return "time unknown";
+      const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+      const mm = String(minutes % 60).padStart(2, "0");
+      return `${hh}:${mm}`;
+    }
+
+    function localMinutesNow(){
+      const now = new Date();
+      return now.getHours() * 60 + now.getMinutes();
+    }
+
+    function activeScheduleOnDate(service, selectedDate){
+      if(!service || !selectedDate) return false;
+
+      const start = service.schedule_start_date;
+      const end = service.schedule_end_date || start;
+      if(start && selectedDate < start) return false;
+      if(end && selectedDate > end) return false;
+
+      const days = service.days_runs;
+      if(days && days.length === 7){
+        const date = new Date(`${selectedDate}T12:00:00`);
+        // JS: Sunday=0. Network Rail days_runs: Monday first.
+        const dayIndex = (date.getDay() + 6) % 7;
+        return days[dayIndex] === "1";
+      }
+
+      return true;
+    }
+
+    async function loadNextScheduledService(){
+      const box = document.getElementById("nextServiceBox");
+      if(!box) return;
+
+      const selectedDate = document.getElementById("dateInput").value || todayIso();
+      const today = todayIso();
+
+      // Only show "next" for the current local date. For archive dates, this would be misleading.
+      if(selectedDate !== today){
+        box.textContent = "Select Today to see the next scheduled service.";
+        return;
+      }
+
+      box.textContent = "Checking schedule...";
+
+      const { data, error } = await supabaseClient
+        .from("schedule_locations")
+        .select(`
+          pass_time,
+          departure,
+          arrival,
+          platform,
+          signalling_id,
+          schedule_services (
+            signalling_id,
+            origin_name,
+            destination_name,
+            atoc_code,
+            schedule_start_date,
+            schedule_end_date,
+            days_runs
+          )
+        `)
+        .eq("tiploc", "ACBG")
+        .limit(2500);
+
+      if(error){
+        console.error(error);
+        box.textContent = "Schedule unavailable";
+        return;
+      }
+
+      const nowMinutes = localMinutesNow();
+
+      const upcoming = (data || [])
+        .map(row => {
+          const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
+          const bookedTime = row.pass_time || row.departure || row.arrival;
+          const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
+
+          return {
+            headcode: row.signalling_id || service?.signalling_id || "Unknown",
+            bookedTime,
+            bookedMinutes,
+            platform: row.platform || "—",
+            origin: displayLocationName(service?.origin_name),
+            destination: displayLocationName(service?.destination_name),
+            toc: service?.atoc_code || "",
+            service
+          };
+        })
+        .filter(item => item.bookedMinutes !== null)
+        .filter(item => item.bookedMinutes >= nowMinutes)
+        .filter(item => activeScheduleOnDate(item.service, selectedDate))
+        .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
+
+      if(!upcoming.length){
+        box.textContent = "No more scheduled services found today";
+        return;
+      }
+
+      const next = upcoming[0];
+      const platformText = next.platform && next.platform !== "—" ? ` · Platform ${next.platform}` : "";
+
+      box.textContent =
+        `${displayScheduleTime(next.bookedTime)} — ${next.headcode} — ${next.origin} to ${next.destination}${platformText}`;
+    }
+
     async function loadMovements(){
       const {data,error}=await supabaseClient
         .from("station_movements")
@@ -741,10 +835,8 @@ td:nth-child(6) {
       movements = dedupeMovements((data || []).map(rowToMovement));
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`,true);
-      if(!userPickedArchiveDate){
-        document.getElementById("dateInput").value = todayIso();
-      }
       renderAll();
+      loadNextScheduledService();
     }
 
     function getFilteredMovements(){
@@ -839,8 +931,8 @@ td:nth-child(6) {
           <td><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
           <td><strong>${escapeHtml(item.trainId)}</strong></td>
           <td class="time">${escapeHtml(item.platform || "—")}</td>
-          <td>${escapeHtml(displayLocationName(item.origin))}</td>
-          <td>${escapeHtml(displayLocationName(item.destination))}</td>
+          <td>${escapeHtml(item.origin || "Unknown")}</td>
+          <td>${escapeHtml(item.destination || "Unknown")}</td>
           <td>${escapeHtml(item.toc || "")}</td>
           <td>${escapeHtml(item.status || "Passed")}</td>
           <td><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
@@ -893,17 +985,15 @@ td:nth-child(6) {
         btn.classList.toggle("active",btn.dataset.filter===selected);
       });
       renderAll();
+      loadNextScheduledService();
     });
 
-    document.getElementById("dateInput").addEventListener("change",()=>{
-      userPickedArchiveDate = true;
-      renderAll();
-    });
+    document.getElementById("dateInput").addEventListener("change",renderAll);
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
     document.getElementById("todayButton").addEventListener("click",()=>{
-      userPickedArchiveDate = false;
       document.getElementById("dateInput").value=todayIso();
       renderAll();
+      loadNextScheduledService();
     });
 
     document.querySelectorAll(".quick-filter-btn").forEach(button=>{
@@ -918,6 +1008,7 @@ td:nth-child(6) {
 
     loadMovements();
     setInterval(loadMovements,60000);
+    setInterval(loadNextScheduledService,60000);
   </script>
 </body>
 </html>
