@@ -7,128 +7,348 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --teal:#087f8c; --teal-dark:#066977; --teal-soft:#d8eef2;
-      --row:#e7f5f8; --line:#c8dde0; --bg:#f3f4f6; --card:#fff;
-      --text:#1f2937; --muted:#6b7280; --freight:#7c2d12;
-      --passenger:#075985; --warning:#92400e;
+      --teal:#087f8c;
+      --teal-dark:#066977;
+      --teal-soft:#d8eef2;
+      --row:#e7f5f8;
+      --line:#c8dde0;
+      --card:#ffffff;
+      --text:#1f2937;
+      --muted:#6b7280;
+      --freight:#7c2d12;
+      --passenger:#075985;
+      --warning:#92400e;
     }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#1f7580 0%,#0ea9b5 48%,#08a8b5 100%);color:var(--text);min-height:100vh}
-    .page{max-width:1280px;margin:0 auto;padding:18px}
-    header{background:var(--card);border-left:10px solid var(--teal);padding:18px 20px;margin-bottom:16px;box-shadow:0 2px 12px rgba(0,0,0,.06)}
-    h1{margin:0 0 6px;font-size:30px}
-    .subtitle{color:var(--muted);margin:0;font-size:15px}
-    .notice{background:#fff7ed;border:1px solid #fed7aa;color:var(--warning);padding:12px 14px;font-weight:bold;margin-bottom:16px;line-height:1.4}
-    .notice.ok{background:#ecfdf5;border-color:#bbf7d0;color:#166534}
-    .controls,.stats-grid,.split-grid{display:grid;gap:12px}
-    .controls{grid-template-columns:180px 1fr 180px 180px;background:var(--card);padding:14px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px;align-items:end}
-    label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:bold;color:#374151}
-    input,select,button{width:100%;padding:9px 10px;font-size:15px;border:1px solid #cbd5e1;border-radius:3px;font-family:Arial,Helvetica,sans-serif}
-    button{border:none;background:var(--teal);color:white;font-weight:bold;cursor:pointer}
-    button:hover{background:var(--teal-dark)}
-    .stats-grid{grid-template-columns:repeat(4,1fr);margin-bottom:16px}
-    .stat-card{background:var(--card);padding:18px;box-shadow:0 2px 12px rgba(0,0,0,.06);border-top:5px solid var(--teal)}
-    .stat-label{color:var(--muted);font-weight:bold;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
-    .stat-value{font-size:36px;font-weight:bold;margin-top:6px}
-    .split-grid{grid-template-columns:2fr 1fr;align-items:start}
-    .panel{background:var(--card);box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px}
-    .panel-title{background:var(--teal);color:white;padding:12px 14px;font-weight:bold;display:flex;justify-content:space-between;gap:12px;align-items:center}
-    .panel-title small{font-weight:normal;opacity:.9}
-    .table-wrap{overflow-x:auto}
-    table{width:100%;border-collapse:collapse;min-width:900px;font-size:15px}
-    th{background:var(--teal-soft);color:#111827;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
-    td{background:var(--row);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;font-style:italic}
-    tr:hover td{background:#dff0f4}
-    .time,.count{text-align:right;font-weight:bold}
-    .badge{display:inline-block;padding:3px 7px;border-radius:999px;font-weight:bold;font-style:normal;font-size:12px}
-    .badge.freight{background:#ffedd5;color:var(--freight)}
-    .badge.passenger{background:#e0f2fe;color:var(--passenger)}
-    .badge.other{background:#f3f4f6;color:#374151}
-    .side-list{padding:14px}
-    .archive-item{display:flex;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px;cursor:pointer}
-    .archive-item:last-child{border-bottom:none}
-    .archive-item:hover{color:var(--teal-dark)}
-    .empty{padding:28px;text-align:center;color:var(--muted)}
-    .hidden{display:none!important}
+
+    * { box-sizing:border-box; }
+
+    body {
+      margin:0;
+      font-family:Arial,Helvetica,sans-serif;
+      background:linear-gradient(180deg,#1f7580 0%,#0ea9b5 48%,#08a8b5 100%);
+      color:var(--text);
+      min-height:100vh;
+    }
+
+    .page {
+      max-width:1380px;
+      margin:0 auto;
+      padding:18px;
+    }
+
+    header {
+      background:rgba(255,255,255,.96);
+      border-left:10px solid var(--teal);
+      padding:18px 20px;
+      margin-bottom:16px;
+      box-shadow:0 2px 12px rgba(0,0,0,.08);
+    }
+
+    h1 { margin:0 0 6px; font-size:30px; }
+    .subtitle { color:var(--muted); margin:0; font-size:15px; }
+
+    .notice {
+      background:#fff7ed;
+      border:1px solid #fed7aa;
+      color:var(--warning);
+      padding:12px 14px;
+      font-weight:bold;
+      margin-bottom:16px;
+      line-height:1.4;
+    }
+
+    .notice.ok {
+      background:#ecfdf5;
+      border-color:#bbf7d0;
+      color:#166534;
+    }
+
+    .description-box, .summary-sentence, .controls, .quick-filters, .panel, .stat-card, .hero-card {
+      background:rgba(255,255,255,.96);
+      box-shadow:0 2px 12px rgba(0,0,0,.08);
+    }
+
+    .description-box {
+      border-left:6px solid var(--teal);
+      padding:16px 18px;
+      margin-bottom:16px;
+      line-height:1.55;
+    }
+
+    .description-box h2 { margin:0 0 8px; font-size:20px; }
+    .description-box p { margin:0 0 8px; color:#374151; }
+    .description-box ul { margin:8px 0 0 20px; padding:0; color:#374151; }
+    .description-box li { margin-bottom:5px; }
 
     .top-summary {
-      display: grid;
-      grid-template-columns: 1.2fr 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-    .hero-card {
-      background: rgba(255,255,255,.96);
-      padding: 16px 18px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.08);
-      border-left: 6px solid var(--teal);
-      line-height: 1.45;
-    }
-    .hero-card strong {
-      display: block;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      font-size: 13px;
-      margin-bottom: 5px;
-    }
-    .hero-card span {
-      font-size: 18px;
-      font-weight: bold;
-    }
-    .quick-filters {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-      background: rgba(255,255,255,.96);
-      padding: 12px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.06);
-    }
-    .quick-filter-btn {
-      width: auto;
-      padding: 8px 12px;
-      background: #475569;
-      border-radius: 999px;
-      font-size: 14px;
-    }
-    .quick-filter-btn.active {
-      background: var(--teal);
-    }
-    .summary-sentence {
-      background: rgba(255,255,255,.96);
-      border-left: 6px solid var(--teal);
-      padding: 14px 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.06);
-      font-weight: bold;
-      line-height: 1.45;
-    }
-    .confidence {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      font-style: normal;
-    }
-    .confidence span {
-      display: inline-block;
-      padding: 3px 7px;
-      border-radius: 999px;
-      background: #f3f4f6;
-      color: #374151;
-      font-size: 12px;
-      font-weight: bold;
-    }
-    .confidence .ok {
-      background: #dcfce7;
-      color: #166534;
-    }
-    .confidence .pending {
-      background: #fef3c7;
-      color: #92400e;
+      display:grid;
+      grid-template-columns:1.2fr 1fr 1fr;
+      gap:12px;
+      margin-bottom:16px;
     }
 
-    @media(max-width:900px){.controls,.stats-grid,.split-grid{grid-template-columns:1fr}table{min-width:780px}}
+    .hero-card {
+      padding:16px 18px;
+      border-left:6px solid var(--teal);
+      line-height:1.45;
+    }
+
+    .hero-card strong {
+      display:block;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      font-size:13px;
+      margin-bottom:5px;
+    }
+
+    .hero-card span {
+      font-size:18px;
+      font-weight:bold;
+    }
+
+    .controls {
+      display:grid;
+      grid-template-columns:180px 1fr 180px 120px 180px;
+      gap:12px;
+      padding:14px;
+      margin-bottom:16px;
+      align-items:end;
+    }
+
+    label {
+      display:flex;
+      flex-direction:column;
+      gap:5px;
+      font-size:13px;
+      font-weight:bold;
+      color:#374151;
+    }
+
+    input, select, button {
+      width:100%;
+      padding:9px 10px;
+      font-size:15px;
+      border:1px solid #cbd5e1;
+      border-radius:3px;
+      font-family:Arial,Helvetica,sans-serif;
+    }
+
+    button {
+      border:none;
+      background:var(--teal);
+      color:white;
+      font-weight:bold;
+      cursor:pointer;
+    }
+
+    button:hover { background:var(--teal-dark); }
+    .secondary-button { background:#475569; }
+
+    .quick-filters {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-bottom:16px;
+      padding:12px;
+    }
+
+    .quick-filter-btn {
+      width:auto;
+      padding:8px 12px;
+      background:#475569;
+      border-radius:999px;
+      font-size:14px;
+    }
+
+    .quick-filter-btn.active { background:var(--teal); }
+
+    .stats-grid {
+      display:grid;
+      grid-template-columns:repeat(6,1fr);
+      gap:12px;
+      margin-bottom:16px;
+    }
+
+    .stat-card {
+      padding:18px;
+      border-top:5px solid var(--teal);
+    }
+
+    .stat-label {
+      color:var(--muted);
+      font-weight:bold;
+      font-size:13px;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    .stat-value {
+      font-size:36px;
+      font-weight:bold;
+      margin-top:6px;
+    }
+
+    .mini-grid {
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:12px;
+      margin-bottom:16px;
+    }
+
+    .mini-card {
+      background:rgba(255,255,255,.96);
+      padding:14px;
+      box-shadow:0 2px 12px rgba(0,0,0,.06);
+      border-left:5px solid var(--teal);
+      line-height:1.4;
+    }
+
+    .mini-card strong {
+      display:block;
+      font-size:13px;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      margin-bottom:5px;
+    }
+
+    .mini-card span {
+      font-weight:bold;
+      color:var(--text);
+    }
+
+    .summary-sentence {
+      border-left:6px solid var(--teal);
+      padding:14px 16px;
+      margin-bottom:16px;
+      font-weight:bold;
+      line-height:1.45;
+    }
+
+    .split-grid {
+      display:grid;
+      grid-template-columns:minmax(0,2fr) minmax(320px,0.65fr);
+      gap:12px;
+      align-items:start;
+    }
+
+    .panel { margin-bottom:16px; }
+
+    .panel-title {
+      background:var(--teal);
+      color:white;
+      padding:12px 14px;
+      font-weight:bold;
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+    }
+
+    .panel-title small {
+      font-weight:normal;
+      opacity:.95;
+      text-align:right;
+    }
+
+    .table-wrap { overflow-x:auto; }
+
+    table {
+      width:100%;
+      border-collapse:collapse;
+      min-width:1120px;
+      font-size:15px;
+    }
+
+    th {
+      background:var(--teal-soft);
+      color:#111827;
+      text-align:left;
+      padding:9px 10px;
+      border-bottom:1px solid var(--line);
+      white-space:nowrap;
+    }
+
+    td {
+      background:var(--row);
+      padding:9px 10px;
+      border-bottom:1px solid var(--line);
+      white-space:nowrap;
+      font-style:italic;
+    }
+
+    tr:hover td { background:#dff0f4; }
+
+    .time, .count { text-align:right; font-weight:bold; }
+
+    .badge, .source-chip {
+      display:inline-block;
+      padding:3px 7px;
+      border-radius:999px;
+      font-weight:bold;
+      font-style:normal;
+      font-size:12px;
+    }
+
+    .badge.freight { background:#ffedd5; color:var(--freight); }
+    .badge.passenger { background:#e0f2fe; color:var(--passenger); }
+    .badge.other { background:#f3f4f6; color:#374151; }
+
+    .source-chip.live { background:#dcfce7; color:#166534; }
+    .source-chip.test { background:#fef3c7; color:#92400e; }
+    .source-chip.other { background:#f3f4f6; color:#374151; }
+
+    .confidence {
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+      font-style:normal;
+    }
+
+    .confidence span {
+      display:inline-block;
+      padding:3px 7px;
+      border-radius:999px;
+      background:#f3f4f6;
+      color:#374151;
+      font-size:12px;
+      font-weight:bold;
+    }
+
+    .confidence .ok { background:#dcfce7; color:#166534; }
+    .confidence .pending { background:#fef3c7; color:#92400e; }
+
+    .side-list { padding:14px; }
+
+    .archive-item {
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      padding:10px 0;
+      border-bottom:1px solid #e5e7eb;
+      font-size:14px;
+      cursor:pointer;
+    }
+
+    .archive-item:last-child { border-bottom:none; }
+    .archive-item:hover { color:var(--teal-dark); }
+
+    .empty {
+      padding:28px;
+      text-align:center;
+      color:var(--muted);
+      background:rgba(255,255,255,.96);
+    }
+
+    .hidden { display:none!important; }
+
+    @media(max-width:900px) {
+      .controls, .stats-grid, .split-grid, .mini-grid, .top-summary { grid-template-columns:1fr; }
+      table { min-width:1120px; }
+      .panel-title { align-items:flex-start; flex-direction:column; }
+      .panel-title small { text-align:left; }
+    }
   </style>
 </head>
 <body>
@@ -140,6 +360,22 @@
 
     <div class="notice" id="statusNotice">Loading Acton Bridge movement data...</div>
 
+    <section class="description-box">
+      <h2>How this tool works</h2>
+      <p>
+        Acton Bridge Rail Count records train movements after they are reported by Network Rail’s live TRUST train movement feed.
+        A background collector checks for reports linked to Acton Bridge and saves matching movements into the database.
+      </p>
+      <ul>
+        <li><strong>Page refreshed</strong> means this website has checked the database again.</li>
+        <li><strong>Last train captured</strong> means the newest real Network Rail movement saved for the selected date.</li>
+        <li><strong>Live rows</strong> are real captured Network Rail TRUST movements.</li>
+        <li><strong>Platform</strong> is shown when Network Rail includes it in the movement report. If no platform is supplied, it shows as —.</li>
+        <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
+        <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
+        <li>The tool currently records trains after they are reported; it does not predict future workings yet.</li>
+      </ul>
+    </section>
 
     <section class="top-summary">
       <div class="hero-card">
@@ -166,11 +402,12 @@
       <label>Show
         <select id="typeFilter">
           <option value="all">All trains</option>
-          <option value="freight">Freight only</option>
           <option value="passenger">Passenger only</option>
-          <option value="other">Other / non-passenger</option>
+          <option value="freight">Freight only</option>
+          <option value="other">ECS / Other</option>
         </select>
       </label>
+      <button class="secondary-button" id="todayButton">Today</button>
       <button id="refreshButton">Refresh</button>
     </section>
 
@@ -185,9 +422,25 @@
       <div class="stat-card"><div class="stat-label">Total trains</div><div class="stat-value" id="totalCount">0</div></div>
       <div class="stat-card"><div class="stat-label">Passenger</div><div class="stat-value" id="passengerCount">0</div></div>
       <div class="stat-card"><div class="stat-label">Freight</div><div class="stat-value" id="freightCount">0</div></div>
-      <div class="stat-card"><div class="stat-label">Other</div><div class="stat-value" id="otherCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">ECS / Other</div><div class="stat-value" id="otherCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">Live rows</div><div class="stat-value" id="liveCount">0</div></div>
+      <div class="stat-card"><div class="stat-label">Test rows</div><div class="stat-value" id="testCount">0</div></div>
     </section>
 
+    <section class="mini-grid">
+      <div class="mini-card">
+        <strong>Collector status</strong>
+        <span id="collectorStatus">Checking live data...</span>
+      </div>
+      <div class="mini-card">
+        <strong>Latest captured movement</strong>
+        <span id="latestMovement">None yet</span>
+      </div>
+      <div class="mini-card">
+        <strong>Data note</strong>
+        <span>Records trains after Network Rail TRUST reports them. It does not predict future workings yet.</span>
+      </div>
+    </section>
 
     <section class="summary-sentence" id="dailySummarySentence">
       Waiting for Acton Bridge movement data.
@@ -197,15 +450,27 @@
       <main class="panel">
         <div class="panel-title">
           <span id="tableTitle">Movements through Acton Bridge</span>
-          <small id="lastUpdated">Last updated: --:--</small>
+          <small>
+            <span id="pageRefreshed">Page refreshed: --:--</span><br>
+            <span id="lastTrainCaptured">Last train captured: none yet</span><br>
+            <span>Auto refresh: every 60 seconds</span>
+          </small>
         </div>
         <div id="emptyState" class="empty hidden">No movements found for this date/filter.</div>
         <div class="table-wrap" id="tableWrap">
           <table>
             <thead>
               <tr>
-                <th>Time</th><th>Type</th><th>Train ID</th><th>Platform</th><th>Origin</th>
-                <th>Destination</th><th>TOC</th><th>Status</th><th>Source</th><th>Data confidence</th>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Train ID</th>
+                <th>Platform</th>
+                <th>Origin</th>
+                <th>Destination</th>
+                <th>TOC</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Data confidence</th>
               </tr>
             </thead>
             <tbody id="movementBody"></tbody>
@@ -214,7 +479,10 @@
       </main>
 
       <aside class="panel">
-        <div class="panel-title"><span>Daily archive</span><small>Recent days</small></div>
+        <div class="panel-title">
+          <span>Daily archive</span>
+          <small>Recent days</small>
+        </div>
         <div class="side-list" id="archiveList"></div>
       </aside>
     </section>
@@ -232,48 +500,28 @@
     let lastLoadedAt = null;
 
     function todayIso(){ return new Date().toISOString().slice(0,10); }
+
     function formatDate(dateString){
       if(!dateString) return "selected date";
       const [year,month,day]=dateString.split("-");
       return `${day}/${month}/${year}`;
     }
+
     function now24h(){
       return new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",hour12:false});
     }
+
     function escapeHtml(value){
-      return String(value || "")
-        .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+      return String(value ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
     }
 
-    function displayTrainType(type, trainId){
-      if(type === "freight") return "Freight";
-      if(type === "passenger") return "Passenger";
-      if(trainId && String(trainId).startsWith("5")) return "ECS / Stock";
-      if(trainId && String(trainId).startsWith("3")) return "ECS / Stock";
-      if(type === "other") return "ECS / Other";
-      return "Unknown";
-    }
-
-    function confidenceHtml(item){
-      const headcodeOk = item.trainId && item.trainId.length === 4;
-      const platformOk = usefulText(item.platform);
-      const odOk = usefulText(item.origin) && usefulText(item.destination);
-      return `
-        <div class="confidence">
-          <span class="${headcodeOk ? "ok" : "pending"}">Headcode ${headcodeOk ? "OK" : "pending"}</span>
-          <span class="${platformOk ? "ok" : "pending"}">Platform ${platformOk ? "OK" : "pending"}</span>
-          <span class="${odOk ? "ok" : "pending"}">Route ${odOk ? "OK" : "pending"}</span>
-        </div>
-      `;
-    }
-
-    function countDisplayType(items, label){
-      return items.filter(item => displayTrainType(item.trainType, item.trainId) === label).length;
-    }
-
-    function newestMovementForDate(items){
-      return items.slice().sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
+    function usefulText(value){
+      return value && value !== "Unknown" && value !== "—";
     }
 
     function setStatus(message,ok=false){
@@ -281,6 +529,41 @@
       notice.textContent=message;
       notice.className=ok ? "notice ok" : "notice";
     }
+
+    function sourceLabel(source){
+      if(source === "Network Rail TRUST") return "Live";
+      if(source === "Test row") return "Manual test";
+      return source || "Unknown";
+    }
+
+    function sourceClass(source){
+      if(source === "Network Rail TRUST") return "live";
+      if(source === "Test row") return "test";
+      return "other";
+    }
+
+    function displayTrainType(type, trainId){
+      if(type === "freight") return "Freight";
+      if(type === "passenger") return "Passenger";
+      if(trainId && (String(trainId).startsWith("5") || String(trainId).startsWith("3"))) return "ECS / Stock";
+      if(type === "other") return "ECS / Other";
+      return "Unknown";
+    }
+
+    function confidenceHtml(item){
+      const headcodeOk = item.trainId && String(item.trainId).length === 4;
+      const platformOk = usefulText(item.platform);
+      const routeOk = usefulText(item.origin) && usefulText(item.destination);
+
+      return `
+        <div class="confidence">
+          <span class="${headcodeOk ? "ok" : "pending"}">Headcode ${headcodeOk ? "OK" : "pending"}</span>
+          <span class="${platformOk ? "ok" : "pending"}">Platform ${platformOk ? "OK" : "pending"}</span>
+          <span class="${routeOk ? "ok" : "pending"}">Route ${routeOk ? "OK" : "pending"}</span>
+        </div>
+      `;
+    }
+
     function rowToMovement(row){
       return {
         id: row.id,
@@ -288,6 +571,7 @@
         time: row.actual_time || row.planned_time || "--:--",
         trainType: row.train_type || "other",
         trainId: row.train_id || "",
+        platform: row.platform || "",
         origin: row.origin || "Unknown",
         destination: row.destination || "Unknown",
         toc: row.toc || "",
@@ -298,20 +582,15 @@
 
     function minutesFromTime(value){
       if(!value || value === "--:--") return null;
-      const text = String(value).replace(":", "").slice(0,4);
+      const text = String(value).replace(":","").slice(0,4);
       if(text.length < 4 || !/^\d{4}$/.test(text)) return null;
-      return Number(text.slice(0,2)) * 60 + Number(text.slice(2,4));
-    }
-
-    function usefulText(value){
-      return value && value !== "Unknown" && value !== "—";
+      return Number(text.slice(0,2))*60 + Number(text.slice(2,4));
     }
 
     function mergeMovement(existing, incoming){
       const existingMinutes = minutesFromTime(existing.time);
       const incomingMinutes = minutesFromTime(incoming.time);
 
-      // Keep the earliest visible time for the train at Acton Bridge.
       if(existingMinutes === null || (incomingMinutes !== null && incomingMinutes < existingMinutes)){
         existing.time = incoming.time;
       }
@@ -320,18 +599,9 @@
       if(!usefulText(existing.origin) && usefulText(incoming.origin)) existing.origin = incoming.origin;
       if(!usefulText(existing.destination) && usefulText(incoming.destination)) existing.destination = incoming.destination;
       if(!usefulText(existing.toc) && usefulText(incoming.toc)) existing.toc = incoming.toc;
+      if(existing.trainType === "other" && incoming.trainType !== "other") existing.trainType = incoming.trainType;
+      if(incoming.source === "Network Rail TRUST") existing.source = incoming.source;
 
-      // Prefer a more specific type over "other" if one duplicate has it.
-      if(existing.trainType === "other" && incoming.trainType !== "other"){
-        existing.trainType = incoming.trainType;
-      }
-
-      // Prefer live source over test/manual if mixed.
-      if(incoming.source === "Network Rail TRUST"){
-        existing.source = incoming.source;
-      }
-
-      existing.status = existing.status || incoming.status;
       existing.duplicateCount = (existing.duplicateCount || 1) + 1;
       return existing;
     }
@@ -344,7 +614,6 @@
         .sort((a,b)=>`${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`))
         .forEach(row=>{
           const rowMinutes = minutesFromTime(row.time);
-
           const match = result.find(existing=>{
             if(existing.date !== row.date) return false;
             if(existing.trainId !== row.trainId) return false;
@@ -352,44 +621,14 @@
             const existingMinutes = minutesFromTime(existing.time);
             if(existingMinutes === null || rowMinutes === null) return true;
 
-            // TRUST can report both arrival and departure / berth style events.
-            // Treat same train within 3 minutes at ACB as one visible movement.
             return Math.abs(existingMinutes - rowMinutes) <= 3;
           });
 
-          if(match){
-            mergeMovement(match, row);
-          } else {
-            result.push({...row, duplicateCount: 1});
-          }
+          if(match) mergeMovement(match,row);
+          else result.push({...row, duplicateCount:1});
         });
 
       return result;
-
-      const latestVisible = newestMovementForDate(daily);
-      const passengerDisplay = countByType(daily, "passenger");
-      const freightDisplay = countByType(daily, "freight");
-      const ecsOtherDisplay = daily.length - passengerDisplay - freightDisplay;
-      const enrichedRows = daily.filter(item => usefulText(item.origin) && usefulText(item.destination)).length;
-
-      document.getElementById("heroTodaySummary").textContent =
-        `${daily.length} movement${daily.length === 1 ? "" : "s"}: ${passengerDisplay} passenger, ${freightDisplay} freight, ${ecsOtherDisplay} ECS/other`;
-
-      document.getElementById("dailySummarySentence").textContent =
-        `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passengerDisplay} passenger, ${freightDisplay} freight and ${ecsOtherDisplay} ECS/other.`;
-
-      if (latestVisible) {
-        document.getElementById("heroLatestTrain").textContent =
-          `${latestVisible.time} — ${latestVisible.trainId} — ${displayTrainType(latestVisible.trainType, latestVisible.trainId)}`;
-      } else {
-        document.getElementById("heroLatestTrain").textContent = "None yet";
-      }
-
-      document.getElementById("heroEnrichmentStatus").textContent =
-        enrichedRows > 0
-          ? `${enrichedRows} movement${enrichedRows === 1 ? "" : "s"} matched to origin/destination`
-          : "Origin/destination matching pending";
-
     }
 
     async function loadMovements(){
@@ -399,71 +638,136 @@
         .eq("station_crs",STATION_CRS)
         .order("running_date",{ascending:false})
         .order("actual_time",{ascending:true});
+
       if(error){
         console.error(error);
         setStatus(`Supabase load error: ${error.message}`,false);
         return;
       }
-      movements=dedupeMovements((data||[]).map(rowToMovement));
-      lastLoadedAt=now24h();
-      setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length===1 ? "" : "s"} loaded.`,true);
+
+      movements = dedupeMovements((data || []).map(rowToMovement));
+      lastLoadedAt = now24h();
+      setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`,true);
       renderAll();
     }
+
     function getFilteredMovements(){
       const selectedDate=document.getElementById("dateInput").value;
       const type=document.getElementById("typeFilter").value;
+
       return movements
         .filter(item=>item.date===selectedDate)
         .filter(item=>type==="all" || item.trainType===type)
         .sort((a,b)=>String(a.time).localeCompare(String(b.time)));
     }
-    function getDailyMovements(date){ return movements.filter(item=>item.date===date); }
-    function countByType(items,type){ return items.filter(item=>item.trainType===type).length; }
+
+    function getDailyMovements(date){
+      return movements.filter(item=>item.date===date);
+    }
+
+    function countByType(items,type){
+      return items.filter(item=>item.trainType===type).length;
+    }
+
     function renderStats(){
       const selectedDate=document.getElementById("dateInput").value;
       const daily=getDailyMovements(selectedDate);
-      const freight=countByType(daily,"freight");
+      const visible=getFilteredMovements();
+
       const passenger=countByType(daily,"passenger");
-      const other=daily.length-freight-passenger;
-      document.getElementById("totalCount").textContent=daily.length;
-      document.getElementById("freightCount").textContent=freight;
-      document.getElementById("passengerCount").textContent=passenger;
-      document.getElementById("otherCount").textContent=other;
+      const freight=countByType(daily,"freight");
+      const other=daily.length-passenger-freight;
+      const liveRows=daily.filter(item=>item.source==="Network Rail TRUST").length;
+      const testRows=daily.filter(item=>item.source==="Test row").length;
+      const enrichedRows=daily.filter(item=>usefulText(item.origin) && usefulText(item.destination)).length;
+
+      document.getElementById("totalCount").textContent=visible.length;
+      document.getElementById("passengerCount").textContent=countByType(visible,"passenger");
+      document.getElementById("freightCount").textContent=countByType(visible,"freight");
+      document.getElementById("otherCount").textContent=visible.length-countByType(visible,"passenger")-countByType(visible,"freight");
+      document.getElementById("liveCount").textContent=liveRows;
+      document.getElementById("testCount").textContent=testRows;
+
       document.getElementById("tableTitle").textContent=`${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("lastUpdated").textContent=`Last updated: ${lastLoadedAt || "--:--"}`;
+      document.getElementById("pageRefreshed").textContent=`Page refreshed: ${lastLoadedAt || "--:--"}`;
+
+      const newestRealMovement=daily
+        .filter(item=>item.source==="Network Rail TRUST")
+        .slice()
+        .sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
+
+      const newestVisible=visible
+        .slice()
+        .sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
+
+      if(newestRealMovement){
+        document.getElementById("lastTrainCaptured").textContent=`Last train captured: ${newestRealMovement.time} (${newestRealMovement.trainId})`;
+        document.getElementById("collectorStatus").textContent="Live Network Rail data captured for this date";
+        document.getElementById("latestMovement").textContent=`${newestRealMovement.time} — ${newestRealMovement.trainId} — ${newestRealMovement.origin} to ${newestRealMovement.destination}`;
+      } else {
+        document.getElementById("lastTrainCaptured").textContent="Last train captured: none from Network Rail yet";
+        document.getElementById("collectorStatus").textContent=daily.length ? "Waiting for live Network Rail movement" : "No data for this date yet";
+        document.getElementById("latestMovement").textContent="No live Network Rail movement captured yet";
+      }
+
+      document.getElementById("heroLatestTrain").textContent = newestVisible
+        ? `${newestVisible.time} — ${newestVisible.trainId} — ${displayTrainType(newestVisible.trainType,newestVisible.trainId)}`
+        : "None yet";
+
+      document.getElementById("heroTodaySummary").textContent =
+        `${daily.length} movement${daily.length === 1 ? "" : "s"}: ${passenger} passenger, ${freight} freight, ${other} ECS/other`;
+
+      document.getElementById("heroEnrichmentStatus").textContent =
+        enrichedRows > 0
+          ? `${enrichedRows} movement${enrichedRows === 1 ? "" : "s"} matched to origin/destination`
+          : "Origin/destination matching pending";
+
+      document.getElementById("dailySummarySentence").textContent =
+        `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passenger} passenger, ${freight} freight and ${other} ECS/other.`;
     }
+
     function renderTable(){
       const body=document.getElementById("movementBody");
       const tableWrap=document.getElementById("tableWrap");
       const emptyState=document.getElementById("emptyState");
       const rows=getFilteredMovements();
+
       body.innerHTML="";
+
       rows.forEach(item=>{
         const tr=document.createElement("tr");
-        const typeLabel=displayTrainType(item.trainType, item.trainId);
+        const typeLabel=displayTrainType(item.trainType,item.trainId);
+
         tr.innerHTML=`
           <td class="time">${escapeHtml(item.time)}</td>
-          <td><span class="badge ${escapeHtml(item.trainType)}">${typeLabel}</span></td>
+          <td><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
           <td><strong>${escapeHtml(item.trainId)}</strong></td>
-          <td>${escapeHtml(item.origin)}</td>
-          <td>${escapeHtml(item.destination)}</td>
-          <td>${escapeHtml(item.toc)}</td>
-          <td>${escapeHtml(item.status)}</td>
+          <td class="time">${escapeHtml(item.platform || "—")}</td>
+          <td>${escapeHtml(item.origin || "Unknown")}</td>
+          <td>${escapeHtml(item.destination || "Unknown")}</td>
+          <td>${escapeHtml(item.toc || "")}</td>
+          <td>${escapeHtml(item.status || "Passed")}</td>
           <td><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
-          <td>${confidenceHtml(item)}</td>`;
+          <td>${confidenceHtml(item)}</td>
+        `;
+
         body.appendChild(tr);
       });
+
       tableWrap.classList.toggle("hidden",rows.length===0);
       emptyState.classList.toggle("hidden",rows.length!==0);
     }
+
     function renderArchive(){
       const archive=document.getElementById("archiveList");
       const dates=[...new Set(movements.map(item=>item.date))].sort().reverse().slice(0,14);
       archive.innerHTML="";
+
       if(!dates.length){
         archive.innerHTML="<p class='empty'>No archived movement days yet.</p>";
         return;
       }
+
       dates.forEach(date=>{
         const daily=getDailyMovements(date);
         const freight=countByType(daily,"freight");
@@ -471,32 +775,44 @@
         const div=document.createElement("div");
         div.className="archive-item";
         div.innerHTML=`<span><strong>${formatDate(date)}</strong><br><small>${passenger} passenger / ${freight} freight</small></span><span class="count">${daily.length}</span>`;
-        div.onclick=()=>{document.getElementById("dateInput").value=date;renderAll();};
+        div.onclick=()=>{
+          document.getElementById("dateInput").value=date;
+          renderAll();
+        };
         archive.appendChild(div);
       });
     }
-    function renderAll(){ renderStats(); renderTable(); renderArchive(); }
 
-    document.getElementById("dateInput").value = todayIso();
-    document.getElementById("typeFilter").addEventListener("change",renderAll);
+    function renderAll(){
+      renderStats();
+      renderTable();
+      renderArchive();
+    }
+
+    document.getElementById("dateInput").value=todayIso();
+
+    document.getElementById("typeFilter").addEventListener("change",()=>{
+      const selected=document.getElementById("typeFilter").value;
+      document.querySelectorAll(".quick-filter-btn").forEach(btn=>{
+        btn.classList.toggle("active",btn.dataset.filter===selected);
+      });
+      renderAll();
+    });
+
     document.getElementById("dateInput").addEventListener("change",renderAll);
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
-
+    document.getElementById("todayButton").addEventListener("click",()=>{
+      document.getElementById("dateInput").value=todayIso();
+      renderAll();
+    });
 
     document.querySelectorAll(".quick-filter-btn").forEach(button=>{
       button.addEventListener("click",()=>{
-        const filter = button.dataset.filter;
-        document.getElementById("typeFilter").value = filter;
+        const filter=button.dataset.filter;
+        document.getElementById("typeFilter").value=filter;
         document.querySelectorAll(".quick-filter-btn").forEach(btn=>btn.classList.remove("active"));
         button.classList.add("active");
         renderAll();
-      });
-    });
-
-    document.getElementById("typeFilter").addEventListener("change",()=>{
-      const selected = document.getElementById("typeFilter").value;
-      document.querySelectorAll(".quick-filter-btn").forEach(btn=>{
-        btn.classList.toggle("active", btn.dataset.filter === selected);
       });
     });
 
