@@ -139,6 +139,7 @@ class TrainMovementListener(stomp.ConnectionListener):
                 "origin": None,
                 "destination": None,
                 "toc": None,
+                "platform": str(message.get("platform") or "").strip() or None,
                 "planned_time": None,
                 "actual_time": actual_time,
                 "event_type": event_type,
