@@ -1,7 +1,6 @@
 import json
 import os
 import signal
-import sys
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -41,11 +40,7 @@ signal.signal(signal.SIGINT, stop_gracefully)
 
 
 def classify_train(train_id: str) -> str:
-    """
-    Rough GB headcode classification.
-    This is enough for the first live counter.
-    Later we can improve this with schedule/CIF enrichment.
-    """
+    """Rough GB headcode classification."""
     if not train_id:
         return "other"
 
@@ -61,10 +56,7 @@ def classify_train(train_id: str) -> str:
 
 
 def trust_time_to_date_and_hhmm(timestamp_ms: Any) -> tuple[str, str]:
-    """
-    Network Rail TRUST actual_timestamp is normally epoch milliseconds.
-    Store as UTC for now. This avoids server timezone confusion.
-    """
+    """Network Rail TRUST actual_timestamp is normally epoch milliseconds."""
     if not timestamp_ms:
         now = datetime.now(timezone.utc)
         return now.date().isoformat(), now.strftime("%H:%M")
@@ -118,7 +110,6 @@ class TrainMovementListener(stomp.ConnectionListener):
         seen_messages += len(messages)
 
         for wrapper in messages:
-            # Network Rail messages are commonly wrapped as {"header": ..., "body": {...}}
             message = wrapper.get("body", wrapper)
 
             loc_stanox = str(message.get("loc_stanox") or "")
@@ -153,9 +144,7 @@ class TrainMovementListener(stomp.ConnectionListener):
                 captured_count += 1
 
 
-def connect_and_listen() -> None:
-    global running
-
+def connect_and_listen(listen_seconds: int) -> None:
     hosts = [("publicdatafeeds.networkrail.co.uk", 61618)]
 
     conn = stomp.Connection12(host_and_ports=hosts, heartbeats=(10000, 10000))
@@ -175,15 +164,14 @@ def connect_and_listen() -> None:
     )
 
     start = time.time()
-    end = start + LISTEN_SECONDS
+    end = start + listen_seconds
 
-    print(f"Listening for Acton Bridge train movements for {LISTEN_SECONDS} seconds...", flush=True)
+    print(f"Listening for Acton Bridge train movements for {listen_seconds} seconds...", flush=True)
 
     last_status = 0
     while running and time.time() < end:
         elapsed = int(time.time() - start)
 
-        # Print a heartbeat every 5 minutes so GitHub logs prove it is alive.
         if elapsed - last_status >= 300:
             remaining = max(0, int(end - time.time()))
             print(
@@ -193,7 +181,6 @@ def connect_and_listen() -> None:
             )
             last_status = elapsed
 
-        # If the STOMP client is disconnected, break so the outer retry can reconnect.
         if not conn.is_connected():
             print("Connection dropped; reconnecting...", flush=True)
             break
@@ -208,13 +195,9 @@ def connect_and_listen() -> None:
 
 
 def main():
-    global running
-
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     print(f"Collector started at {started} UTC", flush=True)
 
-    # Retry loop: useful if Network Rail or the runner disconnects briefly.
-    # Keep retrying until LISTEN_SECONDS has roughly elapsed.
     overall_end = time.time() + LISTEN_SECONDS
 
     while running and time.time() < overall_end:
@@ -222,20 +205,13 @@ def main():
         if remaining <= 0:
             break
 
-        # Each connection attempt should only listen for the remaining time.
-        os.environ["LISTEN_SECONDS"] = str(remaining)
-
         try:
-            connect_and_listen()
+            connect_and_listen(remaining)
         except Exception as exc:
             print(f"Collector connection/run error: {repr(exc)}", flush=True)
             if time.time() < overall_end:
                 print("Waiting 15 seconds before reconnect attempt...", flush=True)
                 time.sleep(15)
-
-        # If finished naturally, stop.
-        if time.time() >= overall_end:
-            break
 
     print(
         f"Collector finished. feed_messages_seen={seen_messages} "
