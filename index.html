@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acton Bridge Rail Count</title>
+  <style>
+    :root {
+      --teal: #087f8c;
+      --teal-dark: #066977;
+      --teal-soft: #d8eef2;
+      --row: #e7f5f8;
+      --line: #c8dde0;
+      --bg: #f3f4f6;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --freight: #7c2d12;
+      --passenger: #075985;
+      --warning: #92400e;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    header {
+      background: var(--card);
+      border-left: 10px solid var(--teal);
+      padding: 18px 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 30px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .notice {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      color: var(--warning);
+      padding: 12px 14px;
+      font-weight: bold;
+      margin-bottom: 16px;
+      line-height: 1.4;
+    }
+
+    .controls, .stats-grid, .split-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .controls {
+      grid-template-columns: 180px 1fr 180px 180px;
+      background: var(--card);
+      padding: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+      align-items: end;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: bold;
+      color: #374151;
+    }
+
+    input, select, button {
+      width: 100%;
+      padding: 9px 10px;
+      font-size: 15px;
+      border: 1px solid #cbd5e1;
+      border-radius: 3px;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    button {
+      border: none;
+      background: var(--teal);
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:hover { background: var(--teal-dark); }
+
+    .stats-grid {
+      grid-template-columns: repeat(4, 1fr);
+      margin-bottom: 16px;
+    }
+
+    .stat-card {
+      background: var(--card);
+      padding: 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      border-top: 5px solid var(--teal);
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-weight: bold;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: bold;
+      margin-top: 6px;
+    }
+
+    .split-grid {
+      grid-template-columns: 2fr 1fr;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--card);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      margin-bottom: 16px;
+    }
+
+    .panel-title {
+      background: var(--teal);
+      color: white;
+      padding: 12px 14px;
+      font-weight: bold;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .panel-title small {
+      font-weight: normal;
+      opacity: 0.9;
+    }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 900px;
+      font-size: 15px;
+    }
+
+    th {
+      background: var(--teal-soft);
+      color: #111827;
+      text-align: left;
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    td {
+      background: var(--row);
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+      font-style: italic;
+    }
+
+    tr:hover td { background: #dff0f4; }
+
+    .time, .count { text-align: right; font-weight: bold; }
+    .badge {
+      display: inline-block;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-weight: bold;
+      font-style: normal;
+      font-size: 12px;
+    }
+
+    .badge.freight { background: #ffedd5; color: var(--freight); }
+    .badge.passenger { background: #e0f2fe; color: var(--passenger); }
+    .badge.other { background: #f3f4f6; color: #374151; }
+
+    .side-list {
+      padding: 14px;
+    }
+
+    .archive-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 14px;
+    }
+
+    .archive-item:last-child { border-bottom: none; }
+
+    .empty {
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 900px) {
+      .controls, .stats-grid, .split-grid { grid-template-columns: 1fr; }
+      table { min-width: 780px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Acton Bridge Rail Count</h1>
+      <p class="subtitle">Daily train movement counts for Acton Bridge, including freight workings and last updated time.</p>
+    </header>
+
+    <div class="notice" id="statusNotice">
+      Prototype mode: this page is currently using sample data. The next step is connecting the collector to real Network Rail / rail movement data and saving it to Supabase.
+    </div>
+
+    <section class="controls">
+      <label>Date
+        <input type="date" id="dateInput" />
+      </label>
+      <label>Station
+        <input type="text" id="stationInput" value="Acton Bridge [ACB]" disabled />
+      </label>
+      <label>Show
+        <select id="typeFilter">
+          <option value="all">All trains</option>
+          <option value="freight">Freight only</option>
+          <option value="passenger">Passenger only</option>
+          <option value="other">Other / non-passenger</option>
+        </select>
+      </label>
+      <button id="refreshButton">Refresh</button>
+    </section>
+
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total trains</div>
+        <div class="stat-value" id="totalCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Passenger</div>
+        <div class="stat-value" id="passengerCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Freight</div>
+        <div class="stat-value" id="freightCount">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Other</div>
+        <div class="stat-value" id="otherCount">0</div>
+      </div>
+    </section>
+
+    <section class="split-grid">
+      <main class="panel">
+        <div class="panel-title">
+          <span id="tableTitle">Movements through Acton Bridge</span>
+          <small id="lastUpdated">Last updated: --:--</small>
+        </div>
+        <div id="emptyState" class="empty hidden">No movements found for this date/filter.</div>
+        <div class="table-wrap" id="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Train ID</th>
+                <th>Origin</th>
+                <th>Destination</th>
+                <th>TOC</th>
+                <th>Status</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="movementBody"></tbody>
+          </table>
+        </div>
+      </main>
+
+      <aside class="panel">
+        <div class="panel-title">
+          <span>Daily archive</span>
+          <small>Recent days</small>
+        </div>
+        <div class="side-list" id="archiveList"></div>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    // ----------------------------------------------------------------------
+    // ACTON BRIDGE RAIL COUNT — VERSION 1 FRONT END
+    // ----------------------------------------------------------------------
+    // This is the first working front-end prototype.
+    // It currently uses sampleData below.
+    // Later we will replace sampleData with Supabase reads.
+    // ----------------------------------------------------------------------
+
+    const STATION_CRS = "ACB";
+    const STATION_NAME = "Acton Bridge";
+
+    const sampleData = [
+      {
+        date: "2026-05-04",
+        time: "03:42",
+        trainType: "freight",
+        trainId: "6E36",
+        origin: "Liverpool Biomass Tml Gbf",
+        destination: "Drax Aes (Gbrf)",
+        toc: "ZZ",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-04",
+        time: "04:18",
+        trainType: "freight",
+        trainId: "4H72",
+        origin: "Arpley Sidings",
+        destination: "Trafford Park Euro Terminal",
+        toc: "ZZ",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-04",
+        time: "05:43",
+        trainType: "passenger",
+        trainId: "5V33",
+        origin: "Crewe C.S.",
+        destination: "Manchester Piccadilly",
+        toc: "AW",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-04",
+        time: "06:50",
+        trainType: "passenger",
+        trainId: "5K37",
+        origin: "Edge Hill Depot",
+        destination: "Crewe",
+        toc: "VT",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-04",
+        time: "16:09",
+        trainType: "freight",
+        trainId: "6M89",
+        origin: "Kings Lynn T.C.",
+        destination: "Ravenhead Sdgs",
+        toc: "ZZ",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-03",
+        time: "04:01",
+        trainType: "freight",
+        trainId: "6E36",
+        origin: "Liverpool Biomass Tml Gbf",
+        destination: "Drax Aes (Gbrf)",
+        toc: "ZZ",
+        status: "Passed",
+        source: "Sample"
+      },
+      {
+        date: "2026-05-03",
+        time: "07:22",
+        trainType: "passenger",
+        trainId: "1F12",
+        origin: "Liverpool Lime Street",
+        destination: "Birmingham New Street",
+        toc: "VT",
+        status: "Passed",
+        source: "Sample"
+      }
+    ];
+
+    let movements = sampleData;
+
+    function todayIso() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function formatDate(dateString) {
+      if (!dateString) return "selected date";
+      const [year, month, day] = dateString.split("-");
+      return `${day}/${month}/${year}`;
+    }
+
+    function now24h() {
+      const now = new Date();
+      return now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function getFilteredMovements() {
+      const selectedDate = document.getElementById("dateInput").value;
+      const type = document.getElementById("typeFilter").value;
+
+      return movements
+        .filter(item => item.date === selectedDate)
+        .filter(item => type === "all" || item.trainType === type)
+        .sort((a, b) => a.time.localeCompare(b.time));
+    }
+
+    function getDailyMovements(date) {
+      return movements.filter(item => item.date === date);
+    }
+
+    function countByType(items, type) {
+      return items.filter(item => item.trainType === type).length;
+    }
+
+    function renderStats() {
+      const selectedDate = document.getElementById("dateInput").value;
+      const daily = getDailyMovements(selectedDate);
+      const freight = countByType(daily, "freight");
+      const passenger = countByType(daily, "passenger");
+      const other = daily.length - freight - passenger;
+
+      document.getElementById("totalCount").textContent = daily.length;
+      document.getElementById("freightCount").textContent = freight;
+      document.getElementById("passengerCount").textContent = passenger;
+      document.getElementById("otherCount").textContent = other;
+      document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
+      document.getElementById("lastUpdated").textContent = `Last updated: ${now24h()}`;
+    }
+
+    function renderTable() {
+      const body = document.getElementById("movementBody");
+      const tableWrap = document.getElementById("tableWrap");
+      const emptyState = document.getElementById("emptyState");
+      const rows = getFilteredMovements();
+
+      body.innerHTML = "";
+
+      rows.forEach(item => {
+        const tr = document.createElement("tr");
+        const typeLabel = item.trainType === "freight" ? "Freight" : item.trainType === "passenger" ? "Passenger" : "Other";
+        tr.innerHTML = `
+          <td class="time">${escapeHtml(item.time)}</td>
+          <td><span class="badge ${escapeHtml(item.trainType)}">${typeLabel}</span></td>
+          <td><strong>${escapeHtml(item.trainId)}</strong></td>
+          <td>${escapeHtml(item.origin)}</td>
+          <td>${escapeHtml(item.destination)}</td>
+          <td>${escapeHtml(item.toc)}</td>
+          <td>${escapeHtml(item.status)}</td>
+          <td>${escapeHtml(item.source)}</td>
+        `;
+        body.appendChild(tr);
+      });
+
+      tableWrap.classList.toggle("hidden", rows.length === 0);
+      emptyState.classList.toggle("hidden", rows.length !== 0);
+    }
+
+    function renderArchive() {
+      const archive = document.getElementById("archiveList");
+      const dates = [...new Set(movements.map(item => item.date))].sort().reverse();
+      archive.innerHTML = "";
+
+      dates.forEach(date => {
+        const daily = getDailyMovements(date);
+        const freight = countByType(daily, "freight");
+        const passenger = countByType(daily, "passenger");
+        const div = document.createElement("div");
+        div.className = "archive-item";
+        div.innerHTML = `
+          <span><strong>${formatDate(date)}</strong><br><small>${passenger} passenger / ${freight} freight</small></span>
+          <span class="count">${daily.length}</span>
+        `;
+        div.onclick = () => {
+          document.getElementById("dateInput").value = date;
+          renderAll();
+        };
+        archive.appendChild(div);
+      });
+    }
+
+    async function refreshData() {
+      // Version 1: sample data only.
+      // Version 2 will replace this with Supabase loading:
+      // const { data, error } = await supabase.from("station_movements").select("*").eq("station_crs", "ACB");
+      renderAll();
+    }
+
+    function renderAll() {
+      renderStats();
+      renderTable();
+      renderArchive();
+    }
+
+    document.getElementById("dateInput").value = "2026-05-04";
+    document.getElementById("typeFilter").addEventListener("change", renderAll);
+    document.getElementById("dateInput").addEventListener("change", renderAll);
+    document.getElementById("refreshButton").addEventListener("click", refreshData);
+
+    renderAll();
+
+    // Auto refresh the visible page every 60 seconds.
+    setInterval(refreshData, 60000);
+  </script>
+</body>
+</html>
