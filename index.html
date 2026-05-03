@@ -4,10 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Acton Bridge Rail Count</title>
-
-  <link rel="icon" type="image/png" href="acton-bridge-logo.png">
-<link rel="apple-touch-icon" href="acton-bridge-logo.png">
-  
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
@@ -202,6 +198,13 @@
 
     button:hover { background:var(--teal-dark); }
     .secondary-button { background:#475569; }
+    .today-button {
+      background:#2fb344;
+      color:white;
+    }
+    .today-button:hover {
+      background:#238636;
+    }
 
     .quick-filters {
       display:flex;
@@ -441,6 +444,7 @@
           <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li>The tool currently records trains after they are reported; it does not predict future workings yet.</li>
+          <li><strong>Today</strong> uses your computer’s local date, so after midnight it moves onto the new day automatically unless you have manually selected an archive date.</li>
         </ul>
       </div>
     </details>
@@ -475,7 +479,7 @@
           <option value="other">ECS / Other</option>
         </select>
       </label>
-      <button class="secondary-button" id="todayButton">Today</button>
+      <button class="today-button" id="todayButton">Today</button>
       <button id="refreshButton">Refresh</button>
     </section>
 
@@ -566,8 +570,15 @@
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     let movements = [];
     let lastLoadedAt = null;
+    let userPickedArchiveDate = false;
 
-    function todayIso(){ return new Date().toISOString().slice(0,10); }
+    function todayIso(){
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
 
     function formatDate(dateString){
       if(!dateString) return "selected date";
@@ -716,6 +727,9 @@
       movements = dedupeMovements((data || []).map(rowToMovement));
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`,true);
+      if(!userPickedArchiveDate){
+        document.getElementById("dateInput").value = todayIso();
+      }
       renderAll();
     }
 
@@ -867,9 +881,13 @@
       renderAll();
     });
 
-    document.getElementById("dateInput").addEventListener("change",renderAll);
+    document.getElementById("dateInput").addEventListener("change",()=>{
+      userPickedArchiveDate = true;
+      renderAll();
+    });
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
     document.getElementById("todayButton").addEventListener("click",()=>{
+      userPickedArchiveDate = false;
       document.getElementById("dateInput").value=todayIso();
       renderAll();
     });
