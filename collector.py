@@ -15,8 +15,10 @@ NETWORK_RAIL_PASSWORD = os.environ["NETWORK_RAIL_PASSWORD"]
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
+# Default: 55 minutes. The workflow timeout is 60 minutes.
 LISTEN_SECONDS = int(os.environ.get("LISTEN_SECONDS", "3300"))
 
+# Acton Bridge identifiers
 ACTON_BRIDGE_STANOX = "37001"
 ACTON_BRIDGE_CRS = "ACB"
 ACTON_BRIDGE_TIPLOC = "ACBG"
@@ -37,27 +39,20 @@ signal.signal(signal.SIGTERM, stop_gracefully)
 signal.signal(signal.SIGINT, stop_gracefully)
 
 
-def headers(return_representation: bool = False) -> dict[str, str]:
-    prefer = "resolution=merge-duplicates"
-    prefer += ",return=representation" if return_representation else ",return=minimal"
-    return {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": prefer,
-    }
-
-
-def table_url(table: str) -> str:
-    return f"{SUPABASE_URL}/rest/v1/{table}"
-
-
 def extract_headcode(raw_train_id: str) -> str:
+    """
+    Network Rail TRUST train_id is often a 10-character internal ID.
+    Example: 351K201903 contains public headcode 1K20 at positions 3-6.
+    This function extracts that public-style headcode when possible.
+    """
     value = str(raw_train_id or "").strip().upper()
 
+    # Already looks like a public headcode, e.g. 1K20, 6M89.
     if len(value) == 4 and value[0].isdigit() and value[1].isalpha():
         return value
 
+    # TRUST internal IDs often include the headcode at characters 3-6.
+    # Example: 351K201903 -> 1K20
     if len(value) >= 6:
         candidate = value[2:6]
         if len(candidate) == 4 and candidate[0].isdigit() and candidate[1].isalpha():
@@ -67,6 +62,12 @@ def extract_headcode(raw_train_id: str) -> str:
 
 
 def classify_train(display_headcode: str) -> str:
+    """
+    Rough GB headcode classification using public-style headcode.
+    4/6/7/8 normally indicate freight or non-passenger.
+    1/2/9 normally indicate passenger.
+    3/5 usually ECS/stock/non-passenger, so keep as other for now.
+    """
     if not display_headcode:
         return "other"
 
@@ -82,6 +83,7 @@ def classify_train(display_headcode: str) -> str:
 
 
 def trust_time_to_date_and_hhmm(timestamp_ms: Any) -> tuple[str, str]:
+    """Network Rail TRUST actual_timestamp is normally epoch milliseconds."""
     if not timestamp_ms:
         now = datetime.now(timezone.utc)
         return now.date().isoformat(), now.strftime("%H:%M")
@@ -90,88 +92,24 @@ def trust_time_to_date_and_hhmm(timestamp_ms: Any) -> tuple[str, str]:
     return dt.date().isoformat(), dt.strftime("%H:%M")
 
 
-def time_to_minutes(value: str | None) -> int | None:
-    if not value:
-        return None
-    text = value.strip().upper().replace("H", "")
-    if len(text) < 4 or not text[:4].isdigit():
-        return None
-    return int(text[:2]) * 60 + int(text[2:4])
-
-
-def find_schedule_enrichment(headcode: str, actual_time: str, running_date: str) -> dict:
-    url = (
-        table_url("schedule_services") +
-        f"?signalling_id=eq.{headcode}"
-        "&select=*,schedule_locations(*)"
-    )
-
-    try:
-        r = requests.get(url, headers=headers(return_representation=True), timeout=30)
-        if r.status_code != 200:
-            return {}
-        schedules = r.json()
-    except Exception:
-        return {}
-
-    movement_minutes = time_to_minutes(actual_time)
-    best = None
-    best_score = 999999
-
-    for service in schedules:
-        if service.get("schedule_start_date") and running_date < service["schedule_start_date"]:
-            continue
-        if service.get("schedule_end_date") and running_date > service["schedule_end_date"]:
-            continue
-
-        acb_locs = [
-            loc for loc in service.get("schedule_locations", [])
-            if loc.get("tiploc") == ACTON_BRIDGE_TIPLOC
-        ]
-        if not acb_locs:
-            continue
-
-        loc = acb_locs[0]
-        booked = loc.get("pass_time") or loc.get("departure") or loc.get("arrival")
-        booked_minutes = time_to_minutes(booked)
-
-        if movement_minutes is None or booked_minutes is None:
-            score = 500
-        else:
-            score = min(
-                abs(movement_minutes - booked_minutes),
-                abs((movement_minutes + 60) - booked_minutes),
-                abs((movement_minutes - 60) - booked_minutes),
-            )
-
-        if score < best_score:
-            best_score = score
-            best = (service, loc)
-
-    if not best:
-        return {}
-
-    service, loc = best
-    return {
-        "origin": service.get("origin_name") or service.get("origin_tiploc"),
-        "destination": service.get("destination_name") or service.get("destination_tiploc"),
-        "toc": service.get("atoc_code"),
-        "planned_time": loc.get("pass_time") or loc.get("departure") or loc.get("arrival"),
-        "platform": loc.get("platform"),
+def insert_movement(row: dict) -> bool:
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,return=minimal",
     }
 
-
-def insert_movement(row: dict) -> bool:
-    r = requests.post(
+    response = requests.post(
         SUPABASE_TABLE_URL,
-        headers=headers(return_representation=False),
+        headers=headers,
         params={"on_conflict": "running_date,station_stanox,train_id,actual_time,event_type"},
         data=json.dumps(row),
         timeout=20,
     )
 
-    if r.status_code not in (200, 201, 204):
-        print("Supabase insert failed:", r.status_code, r.text, flush=True)
+    if response.status_code not in (200, 201, 204):
+        print("Supabase insert failed:", response.status_code, response.text, flush=True)
         return False
 
     return True
@@ -211,8 +149,6 @@ class TrainMovementListener(stomp.ConnectionListener):
             event_type = str(message.get("event_type") or "PASS").strip()
             running_date, actual_time = trust_time_to_date_and_hhmm(message.get("actual_timestamp"))
 
-            enrichment = find_schedule_enrichment(display_headcode, actual_time, running_date)
-
             row = {
                 "running_date": running_date,
                 "station_crs": ACTON_BRIDGE_CRS,
@@ -220,11 +156,11 @@ class TrainMovementListener(stomp.ConnectionListener):
                 "station_stanox": ACTON_BRIDGE_STANOX,
                 "train_id": display_headcode,
                 "train_type": classify_train(display_headcode),
-                "origin": enrichment.get("origin"),
-                "destination": enrichment.get("destination"),
-                "toc": enrichment.get("toc"),
-                "platform": str(message.get("platform") or enrichment.get("platform") or "").strip() or None,
-                "planned_time": enrichment.get("planned_time"),
+                "origin": None,
+                "destination": None,
+                "toc": None,
+                "platform": str(message.get("platform") or "").strip() or None,
+                "planned_time": None,
                 "actual_time": actual_time,
                 "event_type": event_type,
                 "status": "Passed",
@@ -233,13 +169,12 @@ class TrainMovementListener(stomp.ConnectionListener):
                     **message,
                     "_raw_train_id": raw_train_id,
                     "_display_headcode": display_headcode,
-                    "_schedule_enriched": bool(enrichment),
                 },
             }
 
             print(
                 f"CAPTURED {actual_time} raw={raw_train_id} headcode={display_headcode} "
-                f"{row['train_type']} {row.get('origin') or 'Unknown'} to {row.get('destination') or 'Unknown'}",
+                f"{row['train_type']} through Acton Bridge",
                 flush=True,
             )
             if insert_movement(row):
@@ -259,10 +194,15 @@ def connect_and_listen(listen_seconds: int) -> None:
         wait=True,
     )
 
-    conn.subscribe(destination="/topic/TRAIN_MVT_ALL_TOC", id=1, ack="auto")
+    conn.subscribe(
+        destination="/topic/TRAIN_MVT_ALL_TOC",
+        id=1,
+        ack="auto",
+    )
 
     start = time.time()
     end = start + listen_seconds
+
     print(f"Listening for Acton Bridge train movements for {listen_seconds} seconds...", flush=True)
 
     last_status = 0
