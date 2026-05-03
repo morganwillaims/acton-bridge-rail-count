@@ -3,7 +3,6 @@ name: Acton Bridge Rail Count Collector
 on:
   schedule:
     # Run once per hour. The collector listens for 55 minutes.
-    # This is far more reliable than listening for 4 minutes every 5 minutes.
     - cron: "0 * * * *"
   workflow_dispatch:
 
