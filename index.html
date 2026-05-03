@@ -91,7 +91,7 @@
       <main class="panel">
         <div class="panel-title">
           <span id="tableTitle">Movements through Acton Bridge</span>
-          <small id="lastUpdated">Last updated: --:--</small>
+          <small><span id="pageRefreshed">Page refreshed: --:--</span><br><span id="lastTrainCaptured">Last train captured: none yet</span></small>
         </div>
         <div id="emptyState" class="empty hidden">No movements found for this date/filter.</div>
         <div class="table-wrap" id="tableWrap">
@@ -196,7 +196,25 @@
       document.getElementById("passengerCount").textContent=passenger;
       document.getElementById("otherCount").textContent=other;
       document.getElementById("tableTitle").textContent=`${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("lastUpdated").textContent=`Last updated: ${lastLoadedAt || "--:--"}`;
+      document.getElementById("pageRefreshed").textContent=`Page refreshed: ${lastLoadedAt || "--:--"}`;
+
+      const newestRealMovement = daily
+        .filter(item => item.source === "Network Rail TRUST")
+        .sort((a, b) => String(b.time).localeCompare(String(a.time)))[0];
+
+      const newestAnyMovement = daily
+        .sort((a, b) => String(b.time).localeCompare(String(a.time)))[0];
+
+      if (newestRealMovement) {
+        document.getElementById("lastTrainCaptured").textContent =
+          `Last train captured: ${newestRealMovement.time} (${newestRealMovement.trainId})`;
+      } else if (newestAnyMovement) {
+        document.getElementById("lastTrainCaptured").textContent =
+          `Last train captured: none from Network Rail yet`;
+      } else {
+        document.getElementById("lastTrainCaptured").textContent =
+          "Last train captured: none yet";
+      }
     }
     function renderTable(){
       const body=document.getElementById("movementBody");
