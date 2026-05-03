@@ -727,7 +727,7 @@
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li>The tool currently records trains after they are reported; it does not predict future workings yet.</li>
           <li><strong>Today uses UK time</strong> via Europe/London, so it changes date correctly at UK midnight.</li>
-          <li><strong>Next service</strong> uses the booked schedule for trains due to pass Acton Bridge today. Live running may still differ.</li>
+          <li><strong>Next service</strong> only appears for Today and uses UK time. It only shows a confirmed booked Acton Bridge pass where the route is known.</li>
         </ul>
       </div>
     </details>
@@ -1023,9 +1023,21 @@
       return `${hh}:${mm}`;
     }
 
+
+    function ukMinutesNow(){
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(new Date());
+
+      const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      return Number(lookup.hour) * 60 + Number(lookup.minute);
+    }
+
     function localMinutesNow(){
-      const now = new Date();
-      return now.getHours() * 60 + now.getMinutes();
+      return ukMinutesNow();
     }
 
     function activeScheduleOnDate(service, selectedDate){
@@ -1301,7 +1313,10 @@
       loadNextScheduledService();
     });
 
-    document.getElementById("dateInput").addEventListener("change",renderAll);
+    document.getElementById("dateInput").addEventListener("change",()=>{
+      renderAll();
+      loadNextScheduledService();
+    });
     document.getElementById("refreshButton").addEventListener("click",loadMovements);
     document.getElementById("todayButton").addEventListener("click",()=>{
       if(typeof userPickedArchiveDate !== "undefined") userPickedArchiveDate = false;
