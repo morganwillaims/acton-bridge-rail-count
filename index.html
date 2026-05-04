@@ -997,6 +997,31 @@
     }
 
 </style>
+
+  <style id="operator-chart-white-background-patch">
+    #operatorChartCard,
+    .operator-chart-card {
+      background: var(--card) !important;
+      color: var(--text) !important;
+      box-shadow: 0 6px 18px rgba(15,23,42,.10) !important;
+      border-left: 6px solid var(--teal) !important;
+    }
+
+    .operator-chart-card .operator-chart-subtitle {
+      color: var(--muted) !important;
+    }
+
+    .operator-chart-card .operator-track {
+      background: #e2e8f0 !important;
+    }
+
+    .operator-chart-card .operator-chart-topline {
+      background: #f8fafc !important;
+      color: var(--text) !important;
+      border: 1px solid #e2e8f0 !important;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -2725,6 +2750,77 @@
 
       window.renderOperatorChart = renderOperatorChart;
       window.refreshUiPatch = refreshUiPatch;
+    })();
+  </script>
+
+
+  <script id="operator-name-label-patch">
+    (function(){
+      const OPERATOR_FULL_NAMES = {
+        VT: "Avanti West Coast [VT]",
+        LM: "London Northwestern Railway [LM]",
+        ZZ: "Freight / Non-passenger [ZZ]",
+        AW: "Transport for Wales [AW]",
+        NT: "Northern [NT]"
+      };
+
+      function operatorDisplayName(code){
+        const clean = String(code || "").trim().toUpperCase();
+        return OPERATOR_FULL_NAMES[clean] || clean || "Unknown";
+      }
+
+      const previousRenderOperatorChart = window.renderOperatorChart;
+
+      window.renderOperatorChart = function(){
+        if(typeof getDailyMovements !== "function") {
+          if(previousRenderOperatorChart) previousRenderOperatorChart();
+          return;
+        }
+
+        const box = document.getElementById("operatorChartBox");
+        const top = document.getElementById("operatorChartTopline");
+        if(!box || !top) {
+          if(previousRenderOperatorChart) previousRenderOperatorChart();
+          return;
+        }
+
+        const selectedDate = (document.getElementById("dateInput") || {}).value;
+        const daily = (getDailyMovements(selectedDate) || []).filter(item => item && item.toc);
+
+        const counts = {};
+        for(const item of daily){
+          const code = String(item.toc || "").trim().toUpperCase() || "Other";
+          counts[code] = (counts[code] || 0) + 1;
+        }
+
+        const rows = Object.entries(counts)
+          .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+        if(!rows.length){
+          top.textContent = "No operator data available yet";
+          box.innerHTML = '<div class="operator-empty">Operator totals will appear here once movements have loaded.</div>';
+          return;
+        }
+
+        const maxValue = rows[0][1];
+        const [topCode, topCount] = rows[0];
+        top.innerHTML = `Most frequent operator today: <strong>${operatorDisplayName(topCode)}</strong> — ${topCount} movement${topCount === 1 ? "" : "s"}`;
+
+        box.innerHTML = rows.map(([code, count]) => {
+          const width = Math.max(6, Math.round((count / maxValue) * 100));
+          return `
+            <div class="operator-bar-row">
+              <div class="operator-code" title="${operatorDisplayName(code)}">${code}</div>
+              <div class="operator-track"><div class="operator-fill" style="width:${width}%"></div></div>
+              <div class="operator-count">${count}</div>
+            </div>
+          `;
+        }).join("");
+      };
+
+      setTimeout(() => {
+        try { window.renderOperatorChart(); } catch(e) { console.warn("operator name patch failed", e); }
+      }, 100);
     })();
   </script>
 
