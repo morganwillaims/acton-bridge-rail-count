@@ -32,14 +32,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-          # Legacy RTT Pull API auth:
-          RTT_AUTH_MODE: basic
-          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
-          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
-
-          # If you use the new API bearer token route later, change the script/base as needed:
-          # RTT_AUTH_MODE: bearer
-          # RTT_BEARER_TOKEN: ${{ secrets.RTT_BEARER_TOKEN }}
+          # New RTT API Portal token authentication
+          RTT_AUTH_MODE: bearer
+          RTT_BEARER_TOKEN: ${{ secrets.RTT_BEARER_TOKEN }}
 
           RTT_API_BASE: https://api.rtt.io/api/v1
           RTT_STATION: ACBG
