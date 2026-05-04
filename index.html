@@ -260,20 +260,34 @@
       background:var(--teal-soft);
       color:#111827;
       text-align:left;
-      padding:9px 10px;
+      padding:7px 10px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
     }
 
     td {
       background:var(--row);
-      padding:9px 10px;
+      padding:6px 10px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
       font-style:italic;
+      line-height:1.25;
     }
 
     tr:hover td { background:#dff0f4; }
+
+    tr.freight-row td {
+      background:#dbeafe;
+    }
+
+    tr.freight-row:hover td {
+      background:#bfdbfe;
+    }
+
+    tr.freight-row td:first-child {
+      border-left:5px solid #2563eb;
+    }
+
     td:nth-child(5), td:nth-child(6) { font-weight:700; }
     .time, .count { text-align:right; font-weight:bold; }
 
@@ -371,9 +385,24 @@
         align-items:center;
         background:transparent;
         border-bottom:1px solid rgba(200,221,224,.75);
-        padding:8px 10px;
+        padding:7px 10px;
         white-space:normal;
         font-size:14px;
+        line-height:1.25;
+      }
+
+
+      tr.freight-row {
+        border-color:#2563eb;
+        border-left-color:#1d4ed8;
+      }
+
+      tr.freight-row td {
+        background:rgba(219,234,254,.92);
+      }
+
+      tr.freight-row td:first-child {
+        background:rgba(37,99,235,.16);
       }
 
       td:first-child { background:rgba(8,127,140,.10); font-size:16px; }
@@ -921,6 +950,7 @@
 
       rows.forEach(item=>{
         const tr = document.createElement("tr");
+        if(item.trainType === "freight") tr.classList.add("freight-row");
         const typeLabel = displayTrainType(item.trainType,item.trainId);
         tr.innerHTML = `
           <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
