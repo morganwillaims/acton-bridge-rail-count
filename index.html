@@ -3129,6 +3129,7 @@
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
       if(!userPickedArchiveDate) document.getElementById("dateInput").value = todayIso();
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       await loadLocoAllocations(selectedDate);
       renderAll();
       loadNextScheduledService();
@@ -3167,8 +3168,9 @@
     function countByType(items,type){ return items.filter(item=>item.trainType===type).length; }
 
     function getFilteredMovements(){
-      const selectedDate = document.getElementById("dateInput").value;
-      const type = document.getElementById("typeFilter").value;
+      movements = Array.isArray(movements) ? movements : [];
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
+      const type = document.getElementById("typeFilter")?.value || "all";
       return movements
         .filter(item=>item.date===selectedDate)
         .filter(item=>type==="all" || item.trainType===type)
@@ -3239,6 +3241,7 @@
     }
 
     function renderTable(){
+      movements = Array.isArray(movements) ? movements : [];
       const body = document.getElementById("movementBody");
       const tableWrap = document.getElementById("tableWrap");
       const emptyState = document.getElementById("emptyState");
@@ -3299,6 +3302,7 @@
     }
 
     function renderAll(){
+      movements = Array.isArray(movements) ? movements : [];
       renderStats();
       renderTable();
       renderArchive();
@@ -3763,10 +3767,7 @@
           destination: displayLocationName(item.destination)
         }));
       }
-
-      if(typeof renderAll === "function"){
-        try { renderAll(); } catch(e) { console.warn("TIPLOC display patch render failed", e); }
-      }
+      // Do not force renderAll here; loadMovements will render after data is loaded.
     })();
   </script>
 
