@@ -2,9 +2,8 @@ name: Acton Bridge Route Backfill Loop
 
 on:
   schedule:
-    # Starts a 55-minute loop every hour.
-    # The script itself waits 60 seconds between passes.
-    - cron: "0 * * * *"
+    # Runs every 6 hours
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -14,7 +13,7 @@ concurrency:
 jobs:
   backfill-loop:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 360
 
     steps:
       - name: Check out repo
@@ -32,6 +31,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ROUTE_BACKFILL_LOOP_SECONDS: "3300"
+
+          # 5 hours 55 minutes, leaving a 5-minute safety gap
+          ROUTE_BACKFILL_LOOP_SECONDS: "21300"
+
+          # Check every 60 seconds
           ROUTE_BACKFILL_SLEEP_SECONDS: "60"
+
         run: python route_backfill_loop.py
