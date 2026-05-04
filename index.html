@@ -1116,6 +1116,102 @@
     }
   </style>
 
+
+  <style id="loco-community-form-style">
+    .loco-panel {
+      background:#f1f7f8;
+      box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.45);
+      border-left:6px solid var(--teal);
+      padding:16px 18px;
+      margin:16px 0;
+    }
+
+    .loco-panel summary {
+      cursor:pointer;
+      font-weight:900;
+      color:#111827;
+      font-size:1.05rem;
+      list-style:none;
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+    }
+
+    .loco-panel summary::-webkit-details-marker { display:none; }
+    .loco-panel summary::after { content:"▼ Show"; color:var(--muted); font-size:.86rem; }
+    .loco-panel[open] summary::after { content:"▲ Hide"; }
+
+    .loco-form-grid {
+      display:grid;
+      grid-template-columns:140px 130px 130px 1fr 150px 140px;
+      gap:10px;
+      margin-top:14px;
+      align-items:end;
+    }
+
+    .loco-form-grid label {
+      font-size:12px;
+      font-weight:900;
+      color:#475569;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+    }
+
+    .loco-form-grid input,
+    .loco-form-grid select {
+      min-height:40px;
+    }
+
+    .loco-form-note {
+      margin-top:10px;
+      color:#64748b;
+      font-weight:700;
+      line-height:1.35;
+    }
+
+    .loco-form-status {
+      margin-top:10px;
+      font-weight:900;
+    }
+
+    .loco-source-chip {
+      display:inline-block;
+      margin-left:4px;
+      padding:2px 6px;
+      border-radius:999px;
+      font-size:.72rem;
+      font-weight:900;
+      vertical-align:middle;
+      background:#e0f2fe;
+      color:#075985;
+      font-style:normal;
+    }
+
+    .loco-source-chip.predicted {
+      background:#fef3c7;
+      color:#92400e;
+    }
+
+    .loco-source-chip.confirmed {
+      background:#dcfce7;
+      color:#166534;
+    }
+
+    @media(max-width:1000px){
+      .loco-form-grid {
+        grid-template-columns:1fr 1fr;
+      }
+    }
+
+    @media(max-width:600px){
+      .loco-form-grid {
+        grid-template-columns:1fr;
+      }
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -2835,7 +2931,7 @@
       try {
         const { data, error } = await supabaseClient
           .from("loco_allocations")
-          .select("running_date,train_id,loco_number,source_note")
+          .select("running_date,train_id,loco_number,source_note,confidence,source_type,status")
           .eq("running_date", selectedDate);
 
         if(error){
@@ -2850,7 +2946,10 @@
           if(!key) continue;
           map[key] = {
             loco_number: row.loco_number,
-            source_note: row.source_note || ""
+            source_note: row.source_note || "",
+            confidence: row.confidence || "confirmed",
+            source_type: row.source_type || "manual",
+            status: row.status || "approved"
           };
         }
 
@@ -2870,6 +2969,7 @@
       return map[key] || null;
     }
 
+
     function formatLocoCell(item){
       const type = item?.trainType || normaliseTrainType(item?.train_type || "", item?.trainId || item?.train_id || "");
       const showForType = type === "freight" || type === "light_engine";
@@ -2879,8 +2979,92 @@
       const loco = getLocoForMovement(item);
       if(!loco || !loco.loco_number) return `<span class="loco-empty">—</span>`;
 
-      const title = loco.source_note ? ` title="${escapeHtml(loco.source_note)}"` : "";
-      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span>`;
+      const confidence = String(loco.confidence || "confirmed").toLowerCase();
+      const sourceType = String(loco.source_type || "manual").toLowerCase();
+      const chipClass = confidence === "confirmed" ? "confirmed" : sourceType === "prediction" ? "predicted" : "";
+      const chipText = sourceType === "prediction" ? "pred" : confidence === "confirmed" ? "ok" : confidence;
+      const titleParts = [];
+      if(loco.source_note) titleParts.push(loco.source_note);
+      if(loco.confidence) titleParts.push(`Confidence: ${loco.confidence}`);
+      if(loco.source_type) titleParts.push(`Source: ${loco.source_type}`);
+      const title = titleParts.length ? ` title="${escapeHtml(titleParts.join(" · "))}"` : "";
+
+      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span><span class="loco-source-chip ${chipClass}">${escapeHtml(chipText)}</span>`;
+    }
+
+
+
+
+    async function submitLocoSighting(event){
+      event.preventDefault();
+
+      const status = document.getElementById("locoFormStatus");
+      const runningDate = document.getElementById("locoDateInput")?.value || todayIso();
+      const headcode = String(document.getElementById("locoHeadcodeInput")?.value || "").trim().toUpperCase();
+      const locoNumber = String(document.getElementById("locoNumberInput")?.value || "").trim().replace(/\s+/g, "");
+      const sourceNote = String(document.getElementById("locoSourceInput")?.value || "").trim();
+      const confidence = document.getElementById("locoConfidenceInput")?.value || "unverified";
+
+      if(status) status.textContent = "";
+
+      if(!/^[0-9][A-Z][0-9]{2}$/.test(headcode)){
+        if(status) {
+          status.style.color = "#b45309";
+          status.textContent = "Please enter a valid headcode, e.g. 6E24 or 0Z38.";
+        }
+        return;
+      }
+
+      if(!/^[0-9]{5,6}$/.test(locoNumber)){
+        if(status) {
+          status.style.color = "#b45309";
+          status.textContent = "Please enter a loco number, e.g. 66797.";
+        }
+        return;
+      }
+
+      try {
+        const { error } = await supabaseClient
+          .from("loco_sighting_submissions")
+          .insert([{
+            running_date: runningDate,
+            train_id: headcode,
+            loco_number: locoNumber,
+            source_note: sourceNote || "Community submission",
+            confidence,
+            status: "pending"
+          }]);
+
+        if(error) throw error;
+
+        if(status) {
+          status.style.color = "#166534";
+          status.textContent = "Sighting submitted. It will appear after approval.";
+        }
+
+        document.getElementById("locoHeadcodeInput").value = "";
+        document.getElementById("locoNumberInput").value = "";
+        document.getElementById("locoSourceInput").value = "";
+
+      } catch(err) {
+        console.warn("Loco sighting submit failed:", err);
+        if(status) {
+          status.style.color = "#b91c1c";
+          status.textContent = "Could not submit sighting. Check Supabase policy/table setup.";
+        }
+      }
+    }
+
+    function setupLocoSightingForm(){
+      const form = document.getElementById("locoSightingForm");
+      const dateInput = document.getElementById("locoDateInput");
+      if(dateInput && !dateInput.value) {
+        dateInput.value = document.getElementById("dateInput")?.value || todayIso();
+      }
+      if(form && !form.dataset.bound){
+        form.dataset.bound = "1";
+        form.addEventListener("submit", submitLocoSighting);
+      }
     }
 
 
@@ -3121,7 +3305,8 @@
     window.addEventListener("resize", updateQuickFilterCompact);
     updateQuickFilterCompact();
 
-    loadMovements();
+    setupLocoSightingForm();
+      loadMovements();
     loadNextScheduledService();
     setInterval(loadMovements,60000);
     setInterval(loadNextScheduledService,15000);
