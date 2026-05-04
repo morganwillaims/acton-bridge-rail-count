@@ -1389,6 +1389,15 @@
     }
   </style>
 
+
+  <style id="destination-bold-and-tiploc-patch">
+    table.movements-table th:nth-child(7),
+    table.movements-table td:nth-child(7),
+    td[data-label="Destination"] {
+      font-weight: 900 !important;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -2997,6 +3006,114 @@
         form.dataset.bound = "1";
         form.addEventListener("submit", submitLocoSighting);
       }
+    }
+
+
+
+    const EXTRA_TIPLOC_DISPLAY_NAMES = {
+      "MOSEPDF": "Mossend Pd Stirling (Flhh)",
+
+      // Common freight terminals / yards / depots that may appear as TIPLOCs.
+      "CREWEMD": "Crewe Electric Maintenance Depot",
+      "CREWECS": "Crewe C.S.",
+      "CREWPAD": "Crewe P.A.D.",
+      "BESCOT": "Bescot Yard",
+      "BESCOTD": "Bescot Down Side",
+      "BESCOTU": "Bescot Up Side",
+      "WILSDNJ": "Willesden Junction",
+      "WILSDNY": "Willesden Yard",
+      "WEMBLEY": "Wembley Yard",
+      "WMBYICD": "Wembley Inter City Depot",
+      "DVTYIRFT": "Daventry Int Recep Term",
+      "DIRFT": "Daventry Int Recep Term",
+      "HAMSRS": "Hams Hall R.S.",
+      "HMSHALL": "Hams Hall R.S.",
+      "BIRCHWD": "Birchwood",
+      "ARPLYSDG": "Arpley Sidings",
+      "ARPLEY": "Arpley Sidings",
+      "BREDRTS": "Bredbury R.T.S. Freightliner Heavy Haul",
+      "BRNDLHH": "Brindle Heath R.T.S. Flhh",
+      "BRTLYGB": "Barton Under Needwood Rsmd",
+      "SLATFDD": "Slateford Depot",
+      "DRBYRTC": "Derby R.T.C. (Network Rail)",
+      "DONCDDG": "Doncaster Down Decoy GBRf",
+      "CLITHCC": "Clitheroe Castle Cement GBRf",
+      "AVONHSG": "Avonmouth Hanson Siding GBRf",
+      "LVRPBMT": "Liverpool Biomass Terminal",
+      "DRAXPWS": "Drax Power Station",
+      "DRAXAES": "Drax A.E.S.",
+      "RAVNHS": "Ravenhead Sdgs",
+      "KNGSLYTC": "Kings Lynn T.C.",
+      "FOLLYIC": "Folly Lane ICI Sidings",
+      "NRTHRFD": "Northenden R.T.S Flhh",
+      "NTHNFHH": "Northenden R.T.S Flhh",
+      "GARSTONF": "Garston Freightliner Terminal",
+      "GARSTNJ": "Garston Junction",
+      "LAWLYST": "Lawley Street Freightliner Terminal",
+      "WNTONFY": "Wentloog Freightliner Terminal",
+      "SOTONW": "Southampton Western Docks",
+      "SOTONCT": "Southampton Container Terminal",
+      "FELIXGB": "Felixstowe North GBRf",
+      "FELIXFL": "Felixstowe F.L.T.",
+      "IPSWICH": "Ipswich Yard",
+      "MOSSEND": "Mossend Yard",
+      "MOSSENDD": "Mossend Down Yard",
+      "MOSSENDU": "Mossend Up Yard",
+      "MOSSFLD": "Mossend Euroterminal",
+      "HINDLOW": "Hindlow Quarry",
+      "TUNSTED": "Tunstead Sidings",
+      "PEAKFHH": "Peak Forest Freightliner Heavy Haul",
+      "PEAKFRS": "Peak Forest C.E. Sidings",
+      "BOWDEPO": "Bow Depot",
+      "ACTONTC": "Acton T.C.",
+      "ACTONW": "Acton Wells",
+      "MEREHDQ": "Merehead Quarry",
+      "WHATLEY": "Whatley Quarry",
+      "WESTBUR": "Westbury Yard",
+      "HOOJN": "Hoo Junction",
+      "EASTLGH": "Eastleigh East Yard",
+      "HINKSEY": "Hinksey Yard",
+      "TOTON": "Toton T.M.D.",
+      "TOTONC": "Toton Centre",
+      "TINSLEY": "Tinsley Yard",
+      "BARROWHS": "Barrow Hill",
+      "KNOTTGL": "Knottingley T.M.D.",
+      "HEALEY": "Healey Mills Yard",
+      "TYNE": "Tyne Yard",
+      "MILLERH": "Millerhill Yard",
+      "CARLILY": "Carlisle Yard",
+      "CREWBH": "Crewe Basford Hall",
+      "CREWBHM": "Crewe Basford Hall",
+      "WARRTNQ": "Warrington Arpley Yard",
+      "DITTON": "Ditton Reception Sidings",
+      "SEAFORTH": "Seaforth Container Terminal",
+      "TEESNY": "Tees Yard",
+      "IMNGHAM": "Immingham",
+      "IMMNGHMD": "Immingham Dock",
+      "HMBROSD": "Humber Oil Refinery Sidings",
+      "LINDSEY": "Lindsey Oil Refinery",
+      "SCUNTHP": "Scunthorpe",
+      "REDCRDS": "Redcar B.S.C.",
+      "DOLLNDS": "Dollands Moor Sidings",
+      "HAMSFL": "Hams Hall Freightliner",
+      "CASTLBR": "Castle Bromwich"
+    };
+
+    function applyExtraTiplocDisplayNames(value){
+      const raw = String(value || "").trim();
+      const key = raw.toUpperCase().replace(/\s+/g, "");
+      return EXTRA_TIPLOC_DISPLAY_NAMES[key] || raw;
+    }
+
+    if(typeof displayLocationName === "function" && !window.__extraTiplocDisplayPatchApplied){
+      const originalDisplayLocationName = displayLocationName;
+      displayLocationName = function(value){
+        const first = originalDisplayLocationName(value);
+        const mapped = applyExtraTiplocDisplayNames(first);
+        if(mapped !== first) return mapped;
+        return applyExtraTiplocDisplayNames(value);
+      };
+      window.__extraTiplocDisplayPatchApplied = true;
     }
 
 
