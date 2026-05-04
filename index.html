@@ -1212,6 +1212,65 @@
     }
   </style>
 
+
+  <style id="movement-table-column-final-fix">
+    .table-wrap {
+      overflow-x:auto;
+    }
+
+    table.movements-table {
+      width:100%;
+      min-width:1420px;
+      table-layout:fixed;
+      border-collapse:collapse;
+    }
+
+    table.movements-table th,
+    table.movements-table td {
+      padding:9px 12px;
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+
+    table.movements-table th:nth-child(1), table.movements-table td:nth-child(1) { width:82px; }
+    table.movements-table th:nth-child(2), table.movements-table td:nth-child(2) { width:140px; }
+    table.movements-table th:nth-child(3), table.movements-table td:nth-child(3) { width:105px; }
+    table.movements-table th:nth-child(4), table.movements-table td:nth-child(4) { width:110px; text-align:center; }
+    table.movements-table th:nth-child(5), table.movements-table td:nth-child(5) { width:95px; text-align:center; }
+    table.movements-table th:nth-child(6), table.movements-table td:nth-child(6) { width:320px; }
+    table.movements-table th:nth-child(7), table.movements-table td:nth-child(7) { width:320px; }
+    table.movements-table th:nth-child(8), table.movements-table td:nth-child(8) { width:70px; text-align:center; }
+    table.movements-table th:nth-child(9), table.movements-table td:nth-child(9) { width:95px; text-align:center; }
+    table.movements-table th:nth-child(10), table.movements-table td:nth-child(10) { width:105px; text-align:center; }
+    table.movements-table th:nth-child(11), table.movements-table td:nth-child(11) { width:275px; }
+
+    .loco-badge {
+      display:inline-block;
+      padding:5px 12px;
+      border-radius:999px;
+      background:#fef3c7;
+      color:#92400e;
+      font-weight:900;
+      font-size:.88rem;
+      white-space:nowrap;
+    }
+
+    .loco-empty {
+      color:#64748b;
+      font-weight:900;
+    }
+
+    .loco-panel {
+      background:#f1f7f8;
+      box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.45);
+      border-left:6px solid var(--teal);
+      padding:16px 18px;
+      margin:16px 0;
+      display:block;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -3068,6 +3127,22 @@
     }
 
 
+
+    function forceDefaultAllTrains(){
+      try {
+        activeFilter = "all";
+        const showSelect = document.getElementById("typeFilter") || document.getElementById("showFilter");
+        if(showSelect) showSelect.value = "all";
+        document.querySelectorAll(".quick-filter-btn").forEach(btn => {
+          const val = (btn.dataset.filter || btn.dataset.type || btn.textContent || "").toLowerCase().replace(/\s+/g, "_");
+          btn.classList.toggle("active", val === "all" || btn.textContent.trim().toLowerCase() === "all");
+        });
+      } catch(e) {
+        console.warn("Could not force all-trains default", e);
+      }
+    }
+
+
     async function loadMovements(){
       const {data,error} = await supabaseClient
         .from("station_movements")
@@ -3195,39 +3270,70 @@
         `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passenger} passenger, ${freight} freight, ${lightEngine} light engine and ${other} ECS/other.`;
     }
 
-    function renderTable(){
-      const body = document.getElementById("movementBody");
+
+    function renderTable(rows){
       const tableWrap = document.getElementById("tableWrap");
-      const emptyState = document.getElementById("emptyState");
-      const rows = getFilteredMovements();
-      body.innerHTML = "";
+      const selectedDate = document.getElementById("dateInput").value || todayIso();
 
-      rows.forEach(item=>{
-        const tr = document.createElement("tr");
-        if(item.trainType === "freight") tr.classList.add("freight-row");
-        if(item.trainType === "light_engine") tr.classList.add("light-engine-row");
-        if(item.trainType === "other" || String(item.trainId || "").startsWith("5") || String(item.trainId || "").startsWith("3")) {
-          tr.classList.add("ecs-row");
-        }
-        const typeLabel = displayTrainType(item.trainType,item.trainId);
-        tr.innerHTML = `
-          <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
-          <td data-label="Type"><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
-          <td data-label="Train ID"><strong>${escapeHtml(item.trainId)}</strong></td>
-          <td data-label="Platform" class="time">${escapeHtml(item.platform || "—")}</td>
-          <td data-label="Origin">${escapeHtml(item.origin || "Unknown")}</td>
-          <td data-label="Destination">${escapeHtml(item.destination || "Unknown")}</td>
-          <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
-          <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
-          <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
-          <td data-label="Data confidence">${confidenceHtml(item)}</td>
-        `;
-        body.appendChild(tr);
-      });
+      document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
+      document.getElementById("pageRefreshed").innerHTML = `<strong>Page refreshed:</strong> ${now24h()}`;
+      document.getElementById("lastTrainCaptured").textContent = rows.length ? `Last train captured: ${rows[rows.length-1].time} (${rows[rows.length-1].trainId})` : "Last train captured: none yet";
 
-      tableWrap.classList.toggle("hidden", rows.length===0);
-      emptyState.classList.toggle("hidden", rows.length!==0);
+      const tableHtml = `
+        <table class="movements-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Train ID</th>
+              <th class="loco-col">Loco</th>
+              <th>Platform</th>
+              <th>Origin</th>
+              <th>Destination</th>
+              <th>TOC</th>
+              <th>Status</th>
+              <th>Source</th>
+              <th>Data confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows.map(item => {
+                    const rowClass = item.trainType === "freight"
+                      ? "freight-row"
+                      : item.trainType === "light_engine"
+                        ? "light-engine-row"
+                        : item.trainType === "ecs"
+                          ? "ecs-row"
+                          : "";
+
+                    return `
+                      <tr class="${rowClass}">
+                        <td>${escapeHtml(item.time)}</td>
+                        <td>${typeBadge(item.trainType, item.trainId)}</td>
+                        <td>${escapeHtml(item.trainId)}</td>
+                        <td class="loco-col">${formatLocoCell(item)}</td>
+                        <td>${escapeHtml(item.platform || "—")}</td>
+                        <td>${escapeHtml(item.origin || "Unknown")}</td>
+                        <td>${escapeHtml(item.destination || "Unknown")}</td>
+                        <td>${escapeHtml(item.toc || "—")}</td>
+                        <td>${escapeHtml(item.status || "Passed")}</td>
+                        <td>${sourceBadge(item.source)}</td>
+                        <td>${confidenceBadges(item)}</td>
+                      </tr>
+                    `;
+                  }).join("")
+                : `<tr><td colspan="11">No movements found for this date/filter.</td></tr>`
+            }
+          </tbody>
+        </table>
+      `;
+
+      tableWrap.innerHTML = tableHtml;
+      tableWrap.classList.toggle("hidden", false);
     }
+
 
     function renderArchive(){
       const archive = document.getElementById("archiveList");
@@ -3306,6 +3412,7 @@
     updateQuickFilterCompact();
 
     setupLocoSightingForm();
+      forceDefaultAllTrains();
       loadMovements();
     loadNextScheduledService();
     setInterval(loadMovements,60000);
