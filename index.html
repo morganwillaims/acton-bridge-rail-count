@@ -1505,6 +1505,8 @@
 
       const LOCATION_MAP = {
         ACBG:"Acton Bridge",
+        SLATFDD:"Slateford Depot",
+        DRBYRTC:"Derby R.T.C. (Network Rail)",
         ACB:"Acton Bridge",
         CARLILY:"Carlisle L.I.P.Y.",
         CREWBHM:"Crewe Basford Hall",
@@ -1995,6 +1997,8 @@
 
       const LOCATION_MAP = {
         ACBG:"Acton Bridge",
+        SLATFDD:"Slateford Depot",
+        DRBYRTC:"Derby R.T.C. (Network Rail)",
         ACB:"Acton Bridge",
         CARLILY:"Carlisle L.I.P.Y.",
         CREWBHM:"Crewe Basford Hall",
@@ -3202,6 +3206,41 @@
       setTimeout(() => {
         try { window.renderOperatorChart(); } catch(e) { console.warn("operator name patch failed", e); }
       }, 100);
+    })();
+  </script>
+
+
+  <script id="extra-tiploc-display-patch">
+    (function(){
+      const EXTRA_TIPLOC_NAMES = {
+        SLATFDD: "Slateford Depot",
+        DRBYRTC: "Derby R.T.C. (Network Rail)"
+      };
+
+      const oldDisplayLocationName = typeof displayLocationName === "function"
+        ? displayLocationName
+        : function(value){ return String(value || "").trim() || "Unknown"; };
+
+      displayLocationName = function(value){
+        const raw = String(value || "").trim();
+        const upper = raw.toUpperCase();
+
+        if(EXTRA_TIPLOC_NAMES[upper]) return EXTRA_TIPLOC_NAMES[upper];
+
+        return oldDisplayLocationName(value);
+      };
+
+      if(Array.isArray(window.movements)){
+        window.movements = window.movements.map(item => ({
+          ...item,
+          origin: displayLocationName(item.origin),
+          destination: displayLocationName(item.destination)
+        }));
+      }
+
+      if(typeof renderAll === "function"){
+        try { renderAll(); } catch(e) { console.warn("TIPLOC display patch render failed", e); }
+      }
     })();
   </script>
 
