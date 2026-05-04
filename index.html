@@ -1183,6 +1183,25 @@
     }
 
 
+
+    const NEXT_SERVICE_ROUTE_OVERRIDES = {
+      "4M62": {
+        origin: "Arpley Sidings",
+        destination: "Mountsorrel Sdgs"
+      }
+    };
+
+    function applyNextServiceRouteOverride(item){
+      const override = NEXT_SERVICE_ROUTE_OVERRIDES[String(item?.headcode || "").toUpperCase()];
+      if(!override) return item;
+
+      return {
+        ...item,
+        origin: override.origin || item.origin,
+        destination: override.destination || item.destination
+      };
+    }
+
     function scheduleTypeFromHeadcode(headcode){
       const text = String(headcode || "").trim().toUpperCase();
       if(/^0/.test(text)) return "light_engine";
@@ -1190,6 +1209,43 @@
       if(/^[35]/.test(text)) return "ecs";
       if(/^[129]/.test(text)) return "passenger";
       return "other";
+    }
+
+
+    function chooseNearestByType(upcoming, type){
+      return upcoming
+        .filter(item => item.type === type)
+        .sort((a,b) => {
+          const aOverdue = a.bookedSeconds < (typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60);
+          const bOverdue = b.bookedSeconds < (typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60);
+
+          // Prefer due future services over overdue services.
+          if(aOverdue !== bOverdue) return aOverdue ? 1 : -1;
+
+          // Then nearest by booked pass time.
+          return a.bookedSeconds - b.bookedSeconds;
+        })[0];
+    }
+
+    function dedupeUpcomingServices(items){
+      const seen = new Set();
+      const result = [];
+
+      for(const item of items){
+        const key = [
+          item.type,
+          item.headcode,
+          item.bookedTime,
+          item.origin || "",
+          item.destination || ""
+        ].join("|");
+
+        if(seen.has(key)) continue;
+        seen.add(key);
+        result.push(item);
+      }
+
+      return result;
     }
 
     async function loadNextScheduledService(){
@@ -1271,13 +1327,19 @@
           .filter(item => item.bookedMinutes >= nowMinutes)
           .filter(item => activeScheduleOnDate(item.service, selectedDate))
           .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
-          .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
           .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
 
-        const nextPassenger = upcoming.find(item => item.type === "passenger");
-        const nextFreight = upcoming.find(item => item.type === "freight");
-        const nextLightEngine = upcoming.find(item => item.type === "light_engine");
-        const nextEcs = upcoming.find(item => item.type === "ecs");
+        const nextPassenger = chooseNearestByType(upcoming, "passenger");
+        const nextFreight = chooseNearestByType(upcoming, "freight");
+        const nextLightEngine = chooseNearestByType(upcoming, "light_engine");
+        const nextEcs = chooseNearestByType(upcoming, "ecs");
+        console.log("Next expected chosen", {
+          passenger: nextPassenger,
+          freight: nextFreight,
+          lightEngine: nextLightEngine,
+          ecs: nextEcs
+        });
+
 
         function formatNext(label, item, cssClass){
           if(!item) {
@@ -1293,13 +1355,16 @@
           const source = item.sourceLabel === "VSTP" ? " · VSTP" : "";
           const overdue = item.bookedSeconds < nowSeconds;
           const status = overdue
-            ? `<span class="next-service-status overdue">overdue / not yet captured</span>`
+            ? `<span class="next-service-status overdue">Overdue / Not yet passed</span>`
             : `<span class="next-service-status">due${source}</span>`;
+
+          const originText = item.origin && item.origin !== "Unknown" ? item.origin : "Route pending";
+          const destinationText = item.destination && item.destination !== "Unknown" ? item.destination : "Route pending";
 
           return `
             <span class="next-service-line ${cssClass}">
               <span class="next-service-label ${cssClass}">${label}:</span>
-              <span class="next-service-main">${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)} ${status}</span>
+              <span class="next-service-main">${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}${escapeHtml(platformText)} ${status}</span>
             </span>
           `;
         }
@@ -1361,6 +1426,43 @@
 
         return diff <= 4 * 60 * 60;
       });
+    }
+
+
+    function chooseNearestByType(upcoming, type){
+      return upcoming
+        .filter(item => item.type === type)
+        .sort((a,b) => {
+          const aOverdue = a.bookedSeconds < (typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60);
+          const bOverdue = b.bookedSeconds < (typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60);
+
+          // Prefer due future services over overdue services.
+          if(aOverdue !== bOverdue) return aOverdue ? 1 : -1;
+
+          // Then nearest by booked pass time.
+          return a.bookedSeconds - b.bookedSeconds;
+        })[0];
+    }
+
+    function dedupeUpcomingServices(items){
+      const seen = new Set();
+      const result = [];
+
+      for(const item of items){
+        const key = [
+          item.type,
+          item.headcode,
+          item.bookedTime,
+          item.origin || "",
+          item.destination || ""
+        ].join("|");
+
+        if(seen.has(key)) continue;
+        seen.add(key);
+        result.push(item);
+      }
+
+      return result;
     }
 
     async function loadNextScheduledService(){
@@ -1525,21 +1627,28 @@
 
         const overdueWindowSeconds = 45 * 60;
 
-        const upcoming = (bookedResult.data || []).map(mapBookedRow)
+        const upcoming = dedupeUpcomingServices((bookedResult.data || []).map(mapBookedRow)
           .concat(vstpRowsRaw.map(mapVstpRow))
+          .map(applyNextServiceRouteOverride))
           .filter(item => item.service)
           .filter(item => item.bookedSeconds !== null)
           .filter(item => activeScheduleOnDate(item.service, selectedDate))
           .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
-          .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
           .filter(item => !isCapturedAlready(item, capturedToday))
           .filter(item => item.bookedSeconds >= nowSeconds - overdueWindowSeconds)
           .sort((a,b) => a.bookedSeconds - b.bookedSeconds);
 
-        const nextPassenger = upcoming.find(item => item.type === "passenger");
-        const nextFreight = upcoming.find(item => item.type === "freight");
-        const nextLightEngine = upcoming.find(item => item.type === "light_engine");
-        const nextEcs = upcoming.find(item => item.type === "ecs");
+        const nextPassenger = chooseNearestByType(upcoming, "passenger");
+        const nextFreight = chooseNearestByType(upcoming, "freight");
+        const nextLightEngine = chooseNearestByType(upcoming, "light_engine");
+        const nextEcs = chooseNearestByType(upcoming, "ecs");
+        console.log("Next expected chosen", {
+          passenger: nextPassenger,
+          freight: nextFreight,
+          lightEngine: nextLightEngine,
+          ecs: nextEcs
+        });
+
 
         function formatNext(label, item, cssClass){
           if(!item) {
@@ -1555,13 +1664,16 @@
           const source = item.sourceLabel === "VSTP" ? " · VSTP" : "";
           const overdue = item.bookedSeconds < nowSeconds;
           const status = overdue
-            ? `<span class="next-service-status overdue">overdue / not yet captured</span>`
+            ? `<span class="next-service-status overdue">Overdue / Not yet passed</span>`
             : `<span class="next-service-status">due${source}</span>`;
+
+          const originText = item.origin && item.origin !== "Unknown" ? item.origin : "Route pending";
+          const destinationText = item.destination && item.destination !== "Unknown" ? item.destination : "Route pending";
 
           return `
             <span class="next-service-line ${cssClass}">
               <span class="next-service-label ${cssClass}">${label}:</span>
-              <span class="next-service-main">${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)} ${status}</span>
+              <span class="next-service-main">${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}${escapeHtml(platformText)} ${status}</span>
             </span>
           `;
         }
