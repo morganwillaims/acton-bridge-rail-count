@@ -3227,8 +3227,136 @@
       return `${date || ""}|${String(trainId || "").trim().toUpperCase()}`;
     }
 
+    function activeScheduleForStpSync(service, selectedDate){
+      if(!service) return true;
+
+      const start = service.schedule_start_date || service.start_date || null;
+      const end = service.schedule_end_date || service.end_date || null;
+
+      if(start && selectedDate < start) return false;
+      if(end && selectedDate > end) return false;
+
+      const daysRuns = String(service.days_runs || service.days || "").trim();
+      if(daysRuns && daysRuns.length >= 7){
+        const d = new Date(`${selectedDate}T12:00:00Z`);
+        const jsDay = d.getUTCDay(); // 0 Sun, 1 Mon...
+        const idx = jsDay === 0 ? 6 : jsDay - 1; // Mon=0...Sun=6
+        const char = daysRuns[idx];
+        if(char === "0" || char === " " || char === "N" || char === "n") return false;
+      }
+
+      return true;
+    }
+
+    function writeScheduleTypeOverrideFromKnownSchedule(selectedDate, headcode, stpValue, sourceNote, priority = 1){
+      const hc = String(headcode || "").trim().toUpperCase();
+      if(!/^[0-9][A-Z][0-9]{2}$/.test(hc)) return;
+
+      const stp = normaliseStpType(stpValue);
+      if(!stp || stp === "—") return;
+
+      const key = stpOverrideKey(selectedDate, hc);
+      const existing = scheduleTypeOverrides[key];
+
+      // Lower priority = stronger source. Manual/admin overrides should beat automatic schedule sync.
+      if(existing && Number(existing.priority || 99) <= priority) return;
+
+      scheduleTypeOverrides[key] = {
+        stp_type: stp,
+        source_note: sourceNote || "Auto-synced from Network Rail schedule",
+        priority
+      };
+    }
+
+    async function loadKnownNetworkRailScheduleTypes(selectedDate){
+      try {
+        const { data, error } = await supabaseClient
+          .from("schedule_locations")
+          .select(`
+            pass_time,
+            departure,
+            arrival,
+            signalling_id,
+            schedule_services (
+              signalling_id,
+              schedule_start_date,
+              schedule_end_date,
+              days_runs,
+              stp_indicator
+            )
+          `)
+          .eq("tiploc", "ACBG")
+          .limit(5000);
+
+        if(error) throw error;
+
+        (data || []).forEach(row => {
+          const svc = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
+          if(!svc) return;
+          if(!activeScheduleForStpSync(svc, selectedDate)) return;
+
+          const headcode = row.signalling_id || svc.signalling_id;
+          const stp = svc.stp_indicator || row.stp_indicator || "";
+          writeScheduleTypeOverrideFromKnownSchedule(
+            selectedDate,
+            headcode,
+            stp,
+            "Auto-synced from Network Rail schedule",
+            2
+          );
+        });
+      } catch(err) {
+        console.warn("Could not load Network Rail WTT/STP/VAR schedule types:", err);
+      }
+
+      try {
+        const { data, error } = await supabaseClient
+          .from("vstp_locations")
+          .select(`
+            pass_time,
+            departure,
+            arrival,
+            signalling_id,
+            vstp_services (
+              signalling_id,
+              schedule_start_date,
+              schedule_end_date,
+              days_runs,
+              stp_indicator
+            )
+          `)
+          .eq("tiploc", "ACBG")
+          .limit(2000);
+
+        if(error) throw error;
+
+        (data || []).forEach(row => {
+          const svc = Array.isArray(row.vstp_services) ? row.vstp_services[0] : row.vstp_services;
+          if(!svc) return;
+          if(!activeScheduleForStpSync(svc, selectedDate)) return;
+
+          const headcode = row.signalling_id || svc.signalling_id;
+          const stp = svc.stp_indicator || row.stp_indicator || "VSTP";
+          writeScheduleTypeOverrideFromKnownSchedule(
+            selectedDate,
+            headcode,
+            stp || "VSTP",
+            "Auto-synced from Network Rail VSTP schedule",
+            1
+          );
+        });
+      } catch(err) {
+        console.warn("Could not load Network Rail VSTP schedule types:", err);
+      }
+    }
+
     async function loadScheduleTypeOverrides(selectedDate){
       scheduleTypeOverrides = {};
+
+      // First: automatic WTT/STP/VAR/VSTP from known Network Rail schedule tables.
+      await loadKnownNetworkRailScheduleTypes(selectedDate);
+
+      // Second: manual/admin overrides from Supabase. These take priority.
       try {
         const { data, error } = await supabaseClient
           .from("service_schedule_overrides")
@@ -3242,7 +3370,8 @@
           const key = stpOverrideKey(row.running_date, row.train_id);
           scheduleTypeOverrides[key] = {
             stp_type: normaliseStpType(row.stp_type),
-            source_note: row.source_note || ""
+            source_note: row.source_note || "Manual/admin schedule type override",
+            priority: 0
           };
         });
       } catch(err) {
@@ -3255,6 +3384,12 @@
       const override = scheduleTypeOverrides[key];
       if(override && override.stp_type) return override.stp_type;
       return normaliseStpType(item?.stpType || "");
+    }
+
+    function getStpNoteForMovement(item){
+      const key = stpOverrideKey(item?.date, item?.trainId);
+      const override = scheduleTypeOverrides[key];
+      return override?.source_note || "";
     }
 
 
@@ -3450,7 +3585,7 @@
           <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
           <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
           <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
-          <td data-label="STP">${stpBadge(getStpTypeForMovement(item))}</td>
+          <td data-label="STP" title="${escapeHtml(getStpNoteForMovement(item))}">${stpBadge(getStpTypeForMovement(item))}</td>
           <td data-label="Data confidence">${confidenceHtml(item)}</td>
         `;
         body.appendChild(tr);
