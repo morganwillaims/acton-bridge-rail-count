@@ -237,6 +237,45 @@
       grid-template-columns:1fr;
       gap:12px;
       align-items:start;
+      width:100%;
+    }
+
+
+    .split-grid,
+    .split-grid main.panel,
+    .split-grid aside.panel {
+      width:100%;
+      max-width:100%;
+      min-width:0;
+    }
+
+    .table-wrap {
+      width:100%;
+      max-width:100%;
+      overflow-x:auto;
+    }
+
+    .split-grid table {
+      width:100%;
+      min-width:0;
+      table-layout:auto;
+    }
+
+    .split-grid aside.panel {
+      margin-top:0;
+    }
+
+    .side-list {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+      gap:10px;
+    }
+
+    .archive-item {
+      background:rgba(255,255,255,.55);
+      border:1px solid rgba(8,127,140,.18);
+      border-radius:6px;
+      padding:10px 12px;
     }
 
     .panel { margin-bottom:16px; }
@@ -254,24 +293,24 @@
 
     .table-wrap { overflow-x:auto; }
 
-    table { width:100%; border-collapse:collapse; min-width:1180px; font-size:15px; }
+    table { width:100%; border-collapse:collapse; min-width:0; font-size:15px; }
 
     th {
       background:var(--teal-soft);
       color:#111827;
       text-align:left;
-      padding:8px 10px;
+      padding:7px 8px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
     }
 
     td {
       background:var(--row);
-      padding:7px 10px;
+      padding:6px 8px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
       font-style:italic;
-      line-height:1.3;
+      line-height:1.25;
     }
 
     tr:hover td { background:#dff0f4; }
@@ -290,10 +329,17 @@
 
     td:nth-child(5), td:nth-child(6) { font-weight:700; }
 
-    th:nth-child(3), td:nth-child(3) { min-width:100px; }
-    th:nth-child(5), td:nth-child(5) { min-width:210px; }
-    th:nth-child(6), td:nth-child(6) { min-width:210px; }
-    th:nth-child(10), td:nth-child(10) { min-width:170px; }
+    th:nth-child(1), td:nth-child(1) { width:70px; }
+    th:nth-child(2), td:nth-child(2) { width:95px; }
+    th:nth-child(3), td:nth-child(3) { width:85px; }
+    th:nth-child(4), td:nth-child(4) { width:70px; }
+    th:nth-child(5), td:nth-child(5) { width:22%; }
+    th:nth-child(6), td:nth-child(6) { width:22%; }
+    th:nth-child(7), td:nth-child(7) { width:55px; }
+    th:nth-child(8), td:nth-child(8) { width:75px; }
+    th:nth-child(9), td:nth-child(9) { width:65px; }
+    th:nth-child(10), td:nth-child(10) { width:190px; }
+
 
     .time, .count { text-align:right; font-weight:bold; }
 
