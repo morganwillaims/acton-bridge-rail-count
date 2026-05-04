@@ -3169,6 +3169,44 @@
     }
 
 
+
+    let scheduleTypeOverrides = {};
+
+    function stpOverrideKey(date, trainId){
+      return `${date || ""}|${String(trainId || "").trim().toUpperCase()}`;
+    }
+
+    async function loadScheduleTypeOverrides(selectedDate){
+      scheduleTypeOverrides = {};
+      try {
+        const { data, error } = await supabaseClient
+          .from("service_schedule_overrides")
+          .select("running_date,train_id,stp_type,source_note,status")
+          .eq("running_date", selectedDate)
+          .eq("status", "approved");
+
+        if(error) throw error;
+
+        (data || []).forEach(row => {
+          const key = stpOverrideKey(row.running_date, row.train_id);
+          scheduleTypeOverrides[key] = {
+            stp_type: normaliseStpType(row.stp_type),
+            source_note: row.source_note || ""
+          };
+        });
+      } catch(err) {
+        console.warn("Could not load STP/schedule type overrides:", err);
+      }
+    }
+
+    function getStpTypeForMovement(item){
+      const key = stpOverrideKey(item?.date, item?.trainId);
+      const override = scheduleTypeOverrides[key];
+      if(override && override.stp_type) return override.stp_type;
+      return normaliseStpType(item?.stpType || "");
+    }
+
+
     async function loadMovements(){
       const {data,error} = await supabaseClient
         .from("station_movements")
@@ -3195,6 +3233,7 @@
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
       const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       await loadLocoAllocations(selectedDate);
+      await loadScheduleTypeOverrides(selectedDate);
       renderAll();
       loadNextScheduledService();
     loadTdApproachStatus();
@@ -3360,7 +3399,7 @@
           <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
           <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
           <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
-          <td data-label="STP">${stpBadge(item.stpType)}</td>
+          <td data-label="STP">${stpBadge(getStpTypeForMovement(item))}</td>
           <td data-label="Data confidence">${confidenceHtml(item)}</td>
         `;
         body.appendChild(tr);
