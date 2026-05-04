@@ -1301,6 +1301,94 @@
     }
   </style>
 
+
+  <style id="next-expected-services-live-fix">
+    .expected-services-layout {
+      display:grid;
+      grid-template-columns:180px 1fr 1fr;
+      gap:12px;
+      align-items:stretch;
+    }
+
+    .expected-date-card,
+    .expected-service-card {
+      display:block;
+      border-radius:14px;
+      padding:12px 14px;
+      background:#f8fafc;
+      box-shadow:0 2px 8px rgba(15,23,42,.08);
+      border-left:5px solid var(--teal);
+      min-height:92px;
+    }
+
+    .expected-service-card.passenger {
+      background:#eff6ff;
+      border-left-color:#3b82f6;
+    }
+
+    .expected-service-card.freight {
+      background:#dbeafe;
+      border-left-color:#2563eb;
+    }
+
+    .expected-service-card.light-engine {
+      background:#dcfce7;
+      border-left-color:#16a34a;
+    }
+
+    .expected-service-card.ecs {
+      background:#fef3c7;
+      border-left-color:#d97706;
+    }
+
+    .expected-date-title,
+    .expected-service-label {
+      display:block;
+      font-size:1.05rem;
+      font-weight:1000;
+      letter-spacing:.08em;
+      color:#64748b;
+      text-transform:uppercase;
+      margin-bottom:6px;
+    }
+
+    .expected-service-label.passenger { color:#1d4ed8; }
+    .expected-service-label.freight { color:#1e40af; }
+    .expected-service-label.light-engine { color:#166534; }
+    .expected-service-label.ecs { color:#92400e; }
+
+    .expected-date-main,
+    .expected-date-clock,
+    .expected-service-main {
+      display:block;
+      font-weight:900;
+      color:#0f172a;
+      line-height:1.28;
+      font-size:1.02rem;
+    }
+
+    .expected-date-clock {
+      font-size:1.25rem;
+    }
+
+    .expected-service-note {
+      grid-column:2 / 4;
+      color:#64748b;
+      font-weight:800;
+      line-height:1.35;
+      padding:2px 0;
+    }
+
+    @media(max-width:1000px){
+      .expected-services-layout {
+        grid-template-columns:1fr;
+      }
+      .expected-service-note {
+        grid-column:auto;
+      }
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -1781,414 +1869,138 @@
     }
 
 
-    async function loadNextScheduledService(){
-      const box = document.getElementById("nextServiceBox");
-      const card = document.getElementById("nextServiceCard") || (box ? box.closest(".mini-card") : null);
+
+    function minutesFromHHMM(value){
+      if(!value) return null;
+      const text = String(value).trim();
+      const match = text.match(/^(\d{1,2}):(\d{2})/);
+      if(!match) return null;
+      const h = Number(match[1]);
+      const m = Number(match[2]);
+      if(Number.isNaN(h) || Number.isNaN(m)) return null;
+      return h * 60 + m;
+    }
+
+    function nowMinutesUk(){
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(new Date());
+      const h = Number(parts.find(p => p.type === "hour")?.value || 0);
+      const m = Number(parts.find(p => p.type === "minute")?.value || 0);
+      return h * 60 + m;
+    }
+
+    function ukTimeString(){
+      return new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(new Date());
+    }
+
+    function isTrustedLiveMovement(item){
+      const source = String(item?.source || "").toLowerCase();
+      const status = String(item?.status || "").toLowerCase();
+      return source.includes("trust") || source.includes("live") || status.includes("passed") || status.includes("activated");
+    }
+
+    function describeExpectedStatus(diffMinutes, item){
+      if(diffMinutes < -2) return "passed / captured";
+      if(diffMinutes < 0) return "due now";
+      if(diffMinutes <= 2) return "due now";
+      return "due";
+    }
+
+    function formatExpectedMovement(item, diffMinutes){
+      if(!item) return "";
+      const origin = item.origin && item.origin !== "Unknown" ? item.origin : "Route pending";
+      const destination = item.destination && item.destination !== "Unknown" ? item.destination : "Route pending";
+      const status = describeExpectedStatus(diffMinutes, item);
+      return `${escapeHtml(item.time)} — ${escapeHtml(item.trainId)} — ${escapeHtml(origin)} to ${escapeHtml(destination)} <strong>${escapeHtml(status)}</strong>`;
+    }
+
+    function findNextMovementByType(selectedDate, wantedType, windowMinutes = 45){
+      const current = nowMinutesUk();
+
+      const candidates = (Array.isArray(movements) ? movements : [])
+        .filter(item => item.date === selectedDate)
+        .filter(item => {
+          if(wantedType === "passenger") return item.trainType === "passenger";
+          if(wantedType === "freight") return item.trainType === "freight";
+          if(wantedType === "light_engine") return item.trainType === "light_engine" || String(item.trainId || "").startsWith("0");
+          if(wantedType === "ecs") return item.trainType === "ecs" || item.trainType === "other" || String(item.trainId || "").startsWith("5") || String(item.trainId || "").startsWith("3");
+          return false;
+        })
+        .map(item => {
+          const mins = minutesFromHHMM(item.time);
+          if(mins === null) return null;
+          return { item, mins, diff: mins - current };
+        })
+        .filter(Boolean)
+        // include trains up to 2 mins just gone, because the website refreshes every 60 sec
+        .filter(x => x.diff >= -2 && x.diff <= windowMinutes)
+        .sort((a,b) => a.diff - b.diff);
+
+      return candidates[0] || null;
+    }
+
+    function expectedEmptyText(typeLabel){
+      return `No ${typeLabel} is expected through Acton Bridge within the next 45 minutes.`;
+    }
+
+    function renderExpectedCard(className, title, result, emptyLabel){
+      const text = result
+        ? formatExpectedMovement(result.item, result.diff)
+        : expectedEmptyText(emptyLabel);
+
+      return `
+        <span class="expected-service-card ${className}">
+          <span class="expected-service-label ${className}">${title}:</span>
+          <span class="expected-service-main">${text}</span>
+        </span>
+      `;
+    }
+
+    function renderNextExpectedServices(){
+      const box = document.getElementById("nextExpectedBox") || document.getElementById("nextServiceBox");
       if(!box) return;
 
-      const selectedDate = document.getElementById("dateInput").value || todayIso();
-      const today = todayIso();
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
+      const formattedDate = formatDate(selectedDate);
+      const passenger = findNextMovementByType(selectedDate, "passenger", 45);
+      const freight = findNextMovementByType(selectedDate, "freight", 45);
+      const lightEngine = findNextMovementByType(selectedDate, "light_engine", 45);
+      const ecs = findNextMovementByType(selectedDate, "ecs", 45);
 
-      if(selectedDate !== today){
-        if(card) card.classList.add("hidden");
-        box.textContent = "";
-        return;
-      }
-
-      if(card) card.classList.remove("hidden");
-
-      const nowSeconds = typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60;
-      const nowClock = typeof ukNowLong === "function" ? ukNowLong() : now24h();
-
-      box.innerHTML = `<div class="next-service-widget"><div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div><div class="next-service-body"><span class="next-service-line"><span class="next-service-label">Status</span><span class="next-service-main">Checking live services...</span></span></div></div>`;
-
-      const LOCATION_MAP = {
-        ACBG:"Acton Bridge",
-        SLATFDD:"Slateford Depot",
-        DRBYRTC:"Derby R.T.C. (Network Rail)",
-        ACB:"Acton Bridge",
-        CARLILY:"Carlisle L.I.P.Y.",
-        CREWBHM:"Crewe Basford Hall",
-        CREWEMD:"Crewe E.M.D.",
-        CREWECS:"Crewe C.S.",
-        CREWE:"Crewe",
-        LVRPLSH:"Liverpool South Parkway",
-        LVRPLSL:"Liverpool Lime Street",
-        EUSTON:"London Euston",
-        BHAMNWS:"Birmingham New Street",
-        GLGC:"Glasgow Central",
-        EDINBUR:"Edinburgh",
-        PRST:"Preston",
-        LANCSTR:"Lancaster",
-        ALERTN:"Allerton",
-        EDGHDHS:"Edge Hill Depot",
-        LVRPGBF:"Liverpool Biomass Terminal",
-        DRAXGBR:"Drax Power Station",
-        ARPLEYS:"Arpley Sidings",
-        MNTSDGS:"Mountsorrel Sdgs",
-        DIRFDR2:"Daventry DRS",
-        DIRFTFL:"Daventry Int Recep Term",
-        COATDRS:"Coatbridge Down Refuge Siding",
-        STOKMAR:"Stoke Marcroft Engineering",
-        CLITGBR:"Clitheroe Castle Cement GBRf",
-        DONCDDG:"Doncaster Down Decoy GBRf",
-        CREWPAD:"Crewe P.A.D.",
-        NTHNFHH:"Northenden R.T.S Flhh"
-      };
-
-      function cleanRouteName(name, tiploc){
-        const raw = String(name || "").trim();
-        const code = String(tiploc || raw || "").trim().toUpperCase();
-
-        if(LOCATION_MAP[code]) return LOCATION_MAP[code];
-
-        if(raw && raw !== "Unknown" && raw !== "Route pending" && raw !== "null" && raw !== "undefined" && raw !== "NAME GOES HERE" && !/^\d{4,}$/.test(raw)){
-          return raw;
-        }
-
-        return LOCATION_MAP[code] || "Route pending";
-      }
-
-      function toSeconds(value){
-        const mins = parseScheduleTimeToMinutes(value);
-        return mins === null ? null : mins * 60;
-      }
-
-      function headcodeType(headcode){
-        const text = String(headcode || "").trim().toUpperCase();
-        if(/^0/.test(text)) return "light_engine";
-        if(/^[4678]/.test(text)) return "freight";
-        if(/^[35]/.test(text)) return "ecs";
-        if(/^[129]/.test(text)) return "passenger";
-        return "other";
-      }
-
-      function mapScheduleRow(row, sourceLabel){
-        const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
-        const vstpService = Array.isArray(row.vstp_services) ? row.vstp_services[0] : row.vstp_services;
-        const svc = service || vstpService;
-
-        const headcode = row.signalling_id || svc?.signalling_id || "Unknown";
-        const bookedTime = row.pass_time || row.departure || row.arrival;
-        const item = {
-          headcode,
-          type: headcodeType(headcode),
-          bookedTime,
-          bookedSeconds: toSeconds(bookedTime),
-          platform: row.platform || "—",
-          origin: cleanRouteName(svc?.origin_name, svc?.origin_tiploc),
-          destination: cleanRouteName(svc?.destination_name, svc?.destination_tiploc),
-          toc: svc?.atoc_code || "",
-          service: svc,
-          sourceLabel
-        };
-
-        if(typeof applyNextServiceRouteOverride === "function"){
-          return applyNextServiceRouteOverride(item);
-        }
-
-        return item;
-      }
-
-      function isCapturedAlready(item, capturedToday){
-        if(!item || item.bookedSeconds === null) return false;
-
-        return capturedToday.some(movement => {
-          if(String(movement.trainId || "").toUpperCase() !== String(item.headcode || "").toUpperCase()) return false;
-          const actualSeconds = toSeconds(movement.time);
-          if(actualSeconds === null) return false;
-
-          const diff = Math.min(
-            Math.abs(actualSeconds - item.bookedSeconds),
-            Math.abs((actualSeconds + 86400) - item.bookedSeconds),
-            Math.abs(actualSeconds - (item.bookedSeconds + 86400))
-          );
-
-          return diff <= 4 * 60 * 60;
-        });
-      }
-
-      function dedupeByHeadcodeTime(items){
-        const seen = new Set();
-        const result = [];
-
-        for(const item of items){
-          const key = `${item.type}|${item.headcode}|${item.bookedTime}|${item.sourceLabel}`;
-          if(seen.has(key)) continue;
-          seen.add(key);
-          result.push(item);
-        }
-
-        return result;
-      }
-
-      function chooseNext(items, type, options = {}){
-        const allowBookedOnly = Boolean(options.allowBookedOnly);
-        const pool = items
-          .filter(item => item.type === type)
-          .filter(item => item.bookedSeconds !== null)
-          .filter(item => item.bookedSeconds >= nowSeconds - 90)
-          .filter(item => allowBookedOnly || item.sourceLabel !== "Booked")
-          .sort((a,b) => {
-            const sourceRank = sourcePriority(a.sourceLabel) - sourcePriority(b.sourceLabel);
-            if(sourceRank !== 0 && Math.abs(a.bookedSeconds - b.bookedSeconds) <= 10 * 60) return sourceRank;
-            return a.bookedSeconds - b.bookedSeconds;
-          });
-
-        return pool[0] || null;
-      }
-
-      function sourcePriority(source){
-        if(source === "TD") return 0;
-        if(source === "VSTP") return 1;
-        if(source === "TRUST") return 2;
-        if(source === "Booked") return 3;
-        return 4;
-      }
-
-      async function fetchBookedRows(){
-        const result = await supabaseClient
-          .from("schedule_locations")
-          .select(`
-            pass_time,
-            departure,
-            arrival,
-            platform,
-            line,
-            path,
-            signalling_id,
-            schedule_services (
-              signalling_id,
-              origin_tiploc,
-              origin_name,
-              destination_tiploc,
-              destination_name,
-              atoc_code,
-              schedule_start_date,
-              schedule_end_date,
-              days_runs,
-              stp_indicator
-            )
-          `)
-          .eq("tiploc", "ACBG")
-          .limit(5000);
-
-        if(result.error){
-          console.warn("Booked schedule unavailable:", result.error);
-          return [];
-        }
-
-        return (result.data || [])
-          .map(row => mapScheduleRow(row, "Booked"))
-          .filter(item => item.service)
-          .filter(item => item.bookedSeconds !== null)
-          .filter(item => activeScheduleOnDate(item.service, selectedDate))
-          .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode));
-      }
-
-      async function fetchVstpRows(){
-        try {
-          const result = await supabaseClient
-            .from("vstp_locations")
-            .select(`
-              pass_time,
-              departure,
-              arrival,
-              platform,
-              line,
-              path,
-              signalling_id,
-              vstp_services (
-                signalling_id,
-                origin_tiploc,
-                origin_name,
-                destination_tiploc,
-                destination_name,
-                atoc_code,
-                schedule_start_date,
-                schedule_end_date,
-                days_runs,
-                stp_indicator
-              )
-            `)
-            .eq("tiploc", "ACBG")
-            .limit(2000);
-
-          if(result.error){
-            console.warn("VSTP unavailable:", result.error);
-            return [];
-          }
-
-          return (result.data || [])
-            .map(row => mapScheduleRow(row, "VSTP"))
-            .filter(item => item.service)
-            .filter(item => item.bookedSeconds !== null)
-            .filter(item => activeScheduleOnDate(item.service, selectedDate))
-            .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode));
-        } catch(err) {
-          console.warn("VSTP lookup failed:", err);
-          return [];
-        }
-      }
-
-      async function fetchCapturedRows(){
-        try {
-          const result = await supabaseClient
-            .from("station_movements")
-            .select("running_date,actual_time,planned_time,train_id,train_type,origin,destination,platform,toc,source")
-            .eq("station_crs", "ACB")
-            .eq("running_date", selectedDate)
-            .eq("source", "Network Rail TRUST")
-            .limit(2500);
-
-          if(result.error){
-            console.warn("Captured movement lookup failed:", result.error);
-            return [];
-          }
-
-          return (result.data || []).map(row => ({
-            headcode: row.train_id,
-            trainId: row.train_id,
-            type: headcodeType(row.train_id),
-            bookedTime: row.actual_time || row.planned_time,
-            bookedSeconds: toSeconds(row.actual_time || row.planned_time),
-            time: row.actual_time || row.planned_time,
-            platform: row.platform || "—",
-            origin: cleanRouteName(row.origin),
-            destination: cleanRouteName(row.destination),
-            toc: row.toc || "",
-            service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-            sourceLabel: "TRUST"
-          }));
-        } catch(err) {
-          console.warn("Captured movement lookup failed:", err);
-          return [];
-        }
-      }
-
-      async function fetchTdRows(){
-        try {
-          const mapResult = await supabaseClient
-            .from("td_berth_map")
-            .select("area_id,berth,side,label")
-            .eq("area_id", "CE");
-
-          const currentResult = await supabaseClient
-            .from("td_current_berths")
-            .select("area_id,berth,description,updated_at")
-            .eq("area_id", "CE")
-            .not("description", "is", null);
-
-          if(mapResult.error || currentResult.error){
-            console.warn("TD lookup unavailable:", mapResult.error || currentResult.error);
-            return [];
-          }
-
-          const mapped = mapResult.data || [];
-          const current = currentResult.data || [];
-
-          return current
-            .filter(row => row.description && /^[0-9][A-Z][0-9]{2}$/.test(row.description))
-            .filter(row => mapped.some(map => map.area_id === row.area_id && map.berth === row.berth))
-            .map(row => ({
-              headcode: row.description,
-              type: headcodeType(row.description),
-              bookedTime: "TD live",
-              bookedSeconds: nowSeconds,
-              platform: "—",
-              origin: "Live TD",
-              destination: row.berth ? `berth ${row.berth}` : "mapped berth",
-              toc: "",
-              service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-              sourceLabel: "TD"
-            }));
-        } catch(err) {
-          console.warn("TD lookup failed:", err);
-          return [];
-        }
-      }
-
-      try {
-        const [bookedRows, vstpRows, capturedRows, tdRows] = await Promise.all([
-          fetchBookedRows(),
-          fetchVstpRows(),
-          fetchCapturedRows(),
-          fetchTdRows()
-        ]);
-
-        const capturedToday = capturedRows.map(row => ({ trainId:row.trainId || row.headcode, time:row.time || row.bookedTime }));
-
-        const bookedClean = dedupeByHeadcodeTime(bookedRows)
-          .filter(item => !isCapturedAlready(item, capturedToday));
-
-        const vstpClean = dedupeByHeadcodeTime(vstpRows)
-          .filter(item => !isCapturedAlready(item, capturedToday));
-
-        const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
-        const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
-
-        const nextPassenger = chooseNext(allScheduleForPassenger, "passenger", { allowBookedOnly:true });
-
-        // Freight/light engine:
-        // 1) TD/VSTP/TRUST if genuinely confirmed.
-        // 2) Fallback to booked 0XXX light-engine only so the box is not permanently empty.
-        // 3) Do NOT use booked freight as confirmed, because many freight paths are Q-path/as-required.
-        const nextFreight = chooseNext(allLiveOrConfirmed, "freight", { allowBookedOnly:false });
-        const nextLightEngine = chooseNext(allLiveOrConfirmed, "light_engine", { allowBookedOnly:false })
-          || chooseNext(bookedClean, "light_engine", { allowBookedOnly:true });
-
-        const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
-
-        function formatNext(label, item, cssClass, emptyText){
-          if(!item){
-            return `
-              <span class="next-service-line ${cssClass}">
-                <span class="next-service-label ${cssClass}">${label}:</span>
-                <span class="next-service-main">${escapeHtml(emptyText)}</span>
-              </span>
-            `;
-          }
-
-          const source = item.sourceLabel === "Booked" ? "booked" : item.sourceLabel === "TD" ? "TD live" : item.sourceLabel === "VSTP" ? "confirmed VSTP" : "captured TRUST";
-          const status = `<span class="next-service-status">${escapeHtml(source)}</span>`;
-
-          if(item.sourceLabel === "TD"){
-            return `
-              <span class="next-service-line ${cssClass}">
-                <span class="next-service-label ${cssClass}">${label}:</span>
-                <span class="next-service-main">${escapeHtml(item.headcode)} — live in ${escapeHtml(item.destination)} ${status}</span>
-              </span>
-            `;
-          }
-
-          const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
-          const originText = item.origin && item.origin !== "Unknown" ? item.origin : "Route pending";
-          const destinationText = item.destination && item.destination !== "Unknown" ? item.destination : "Route pending";
-
-          return `
-            <span class="next-service-line ${cssClass}">
-              <span class="next-service-label ${cssClass}">${label}:</span>
-              <span class="next-service-main">${item.sourceLabel === "TRUST" ? escapeHtml(item.bookedTime) : displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}${escapeHtml(platformText)} ${status}</span>
-            </span>
-          `;
-        }
-
-        box.innerHTML =
-          `<div class="next-service-widget">` +
-          `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
-          `<div class="next-service-body">` +
-          formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No confirmed freight currently") +
-          formatNext("Light Engine", nextLightEngine, "light_engine", "No light-engine path found") +
-          formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Freight uses confirmed VSTP / TD / captured TRUST only. Light engine uses confirmed data first, then booked 0XXX fallback.</span>` +
-          `</div></div>`;
-
-      } catch(err) {
-        console.error("Next expected service box failed:", err);
-        box.textContent = "Booked schedule unavailable";
-      }
+      box.innerHTML = `
+        <span class="expected-services-layout">
+          <span class="expected-date-card">
+            <span class="expected-date-title">DATE</span>
+            <span class="expected-date-main">${escapeHtml(formattedDate)}</span>
+            <span class="expected-date-title">UK time:</span>
+            <span class="expected-date-clock">${escapeHtml(ukTimeString())}</span>
+          </span>
+          ${renderExpectedCard("passenger", "PASSENGER", passenger, "passenger train")}
+          ${renderExpectedCard("freight", "FREIGHT", freight, "confirmed freight train")}
+          ${renderExpectedCard("light-engine", "LIGHT ENGINE", lightEngine, "light-engine movement")}
+          ${renderExpectedCard("ecs", "ECS/OTHER", ecs, "ECS/other movement")}
+          <span class="expected-service-note">
+            Uses live/captured TRUST movements for all categories. If nothing is due soon, the card shows that no train is expected within 45 minutes.
+          </span>
+        </span>
+      `;
     }
+
+    // Backwards compatibility: older code may call loadNextScheduledService().
+    async function loadNextScheduledService(){
+      renderNextExpectedServices();
+    }
+
 
 
     function updateNextServiceClockOnly(){
