@@ -1270,6 +1270,37 @@
     table.movements-table th:nth-child(11), table.movements-table td:nth-child(11) { width: 310px; }
   </style>
 
+
+  <style id="loco-confidence-colours">
+    .loco-badge {
+      display:inline-block;
+      padding:5px 12px;
+      border-radius:999px;
+      font-weight:900;
+      font-size:.88rem;
+      white-space:nowrap;
+      border:2px solid transparent;
+    }
+
+    .loco-badge.loco-confirmed {
+      background:#22c55e !important;
+      color:#052e16 !important;
+      border-color:#16a34a;
+    }
+
+    .loco-badge.loco-likely {
+      background:#fb923c !important;
+      color:#431407 !important;
+      border-color:#f97316;
+    }
+
+    .loco-badge.loco-unverified {
+      background:#ef4444 !important;
+      color:#ffffff !important;
+      border-color:#dc2626;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -3020,7 +3051,7 @@
       try {
         const { data, error } = await supabaseClient
           .from("loco_allocations")
-          .select("running_date,train_id,loco_number,source_note")
+          .select("running_date,train_id,loco_number,source_note,confidence,source_type,status")
           .eq("running_date", selectedDate);
 
         if(error){
@@ -3035,7 +3066,10 @@
           if(!key) continue;
           map[key] = {
             loco_number: row.loco_number,
-            source_note: row.source_note || ""
+            source_note: row.source_note || "",
+            confidence: row.confidence || "unverified",
+            source_type: row.source_type || "manual",
+            status: row.status || "approved"
           };
         }
 
@@ -3055,6 +3089,7 @@
       return map[key] || null;
     }
 
+
     function formatLocoCell(item){
       const type = item?.trainType || normaliseTrainType(item?.train_type || "", item?.trainId || item?.train_id || "");
       const showForType = type === "freight" || type === "light_engine";
@@ -3064,9 +3099,16 @@
       const loco = getLocoForMovement(item);
       if(!loco || !loco.loco_number) return `<span class="loco-empty">—</span>`;
 
-      const title = loco.source_note ? ` title="${escapeHtml(loco.source_note)}"` : "";
-      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span>`;
+      const confidence = String(loco.confidence || "unverified").toLowerCase();
+      const safeConfidence = ["confirmed", "likely", "unverified"].includes(confidence) ? confidence : "unverified";
+      const titleParts = [];
+      if(loco.source_note) titleParts.push(loco.source_note);
+      titleParts.push(`Confidence: ${safeConfidence}`);
+      const title = ` title="${escapeHtml(titleParts.join(" · "))}"`;
+
+      return `<span class="loco-badge loco-${safeConfidence}"${title}>${escapeHtml(loco.loco_number)}</span>`;
     }
+
 
 
 
