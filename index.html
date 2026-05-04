@@ -1071,6 +1071,51 @@
     }
   </style>
 
+
+  <style id="loco-column-alignment-fix">
+    table.movements-table,
+    #movementTable,
+    .movement-table {
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    th.loco-col,
+    td.loco-col {
+      width: 72px;
+      min-width: 72px;
+      max-width: 72px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    table th:nth-child(1), table td:nth-child(1) { width: 78px; }
+    table th:nth-child(2), table td:nth-child(2) { width: 128px; }
+    table th:nth-child(3), table td:nth-child(3) { width: 92px; }
+    table th:nth-child(4), table td:nth-child(4) { width: 72px; text-align:center; }
+    table th:nth-child(5), table td:nth-child(5) { width: 86px; text-align:center; }
+    table th:nth-child(8), table td:nth-child(8) { width: 64px; text-align:center; }
+    table th:nth-child(9), table td:nth-child(9) { width: 88px; text-align:center; }
+    table th:nth-child(10), table td:nth-child(10) { width: 96px; text-align:center; }
+    table th:nth-child(11), table td:nth-child(11) { width: 260px; }
+
+    .loco-badge {
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      background:#fef3c7;
+      color:#92400e;
+      font-weight:900;
+      font-size:.85rem;
+      white-space:nowrap;
+    }
+
+    .loco-empty {
+      color:#64748b;
+      font-weight:700;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -1198,7 +1243,7 @@
                 <th>Time</th>
                 <th>Type</th>
                 <th>Train ID</th>
-              <th class="loco-col">Loco</th>
+                <th class="loco-col">Loco</th>
                 <th>Platform</th>
                 <th>Origin</th>
                 <th>Destination</th>
