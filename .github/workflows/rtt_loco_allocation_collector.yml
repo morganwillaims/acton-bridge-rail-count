@@ -32,10 +32,11 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-          # New RTT API Portal token authentication
-          RTT_AUTH_MODE: bearer
+          # RTT Next Generation API token
           RTT_BEARER_TOKEN: ${{ secrets.RTT_BEARER_TOKEN }}
-
-          RTT_API_BASE: https://api.rtt.io/api/v1
+          RTT_API_BASE: https://data.rtt.io
           RTT_STATION: ACBG
+
+          # Optional debug. Set to 1 temporarily if we need to inspect API JSON shapes.
+          RTT_DEBUG_WRITE_JSON: "0"
         run: python rtt_loco_allocation_collector.py
