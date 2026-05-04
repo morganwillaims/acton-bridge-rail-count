@@ -1402,6 +1402,44 @@
     }
   </style>
 
+
+  <style id="stp-column-and-next-freight-fix">
+    table.movements-table {
+      min-width: 1600px;
+      table-layout: fixed;
+    }
+
+    table.movements-table th:nth-child(1), table.movements-table td:nth-child(1) { width: 82px; }
+    table.movements-table th:nth-child(2), table.movements-table td:nth-child(2) { width: 140px; }
+    table.movements-table th:nth-child(3), table.movements-table td:nth-child(3) { width: 110px; }
+    table.movements-table th:nth-child(4), table.movements-table td:nth-child(4) { width: 110px; text-align:center; }
+    table.movements-table th:nth-child(5), table.movements-table td:nth-child(5) { width: 95px; text-align:center; }
+    table.movements-table th:nth-child(6), table.movements-table td:nth-child(6) { width: 320px; }
+    table.movements-table th:nth-child(7), table.movements-table td:nth-child(7) { width: 320px; }
+    table.movements-table th:nth-child(8), table.movements-table td:nth-child(8) { width: 72px; text-align:center; }
+    table.movements-table th:nth-child(9), table.movements-table td:nth-child(9) { width: 95px; text-align:center; }
+    table.movements-table th:nth-child(10), table.movements-table td:nth-child(10) { width: 105px; text-align:center; }
+    table.movements-table th:nth-child(11), table.movements-table td:nth-child(11) { width: 82px; text-align:center; }
+    table.movements-table th:nth-child(12), table.movements-table td:nth-child(12) { width: 300px; }
+
+    .stp-badge {
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      font-size:.78rem;
+      font-weight:900;
+      background:#e5e7eb;
+      color:#334155;
+      white-space:nowrap;
+    }
+
+    .stp-wtt { background:#dcfce7; color:#166534; }
+    .stp-stp { background:#dbeafe; color:#1d4ed8; }
+    .stp-var { background:#fef3c7; color:#92400e; }
+    .stp-vstp { background:#fee2e2; color:#991b1b; }
+    .stp-can { background:#fecaca; color:#7f1d1d; }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -1536,7 +1574,8 @@
                 <th>TOC</th>
                 <th>Status</th>
                 <th>Source</th>
-                <th>Data confidence</th>
+                <th>STP</th>
+              <th>Data confidence</th>
               </tr>
             </thead>
             <tbody id="movementBody"></tbody>
@@ -1743,7 +1782,8 @@
         destination: displayLocationName(row.destination),
         toc: row.toc || "",
         status: row.status || "Passed",
-        source: row.source || "Network Rail"
+        source: row.source || "Network Rail",
+        stpType: normaliseStpType(row.stp || row.stp_indicator || row.stp_type || row.schedule_type || row.scheduleType || row.cif_stp_indicator || row.CIF_stp_indicator || row.atoc_stp || "")
       };
     }
 
@@ -1937,6 +1977,7 @@
       return `${escapeHtml(item.time)} — ${escapeHtml(item.trainId)} — ${escapeHtml(origin)} to ${escapeHtml(destination)} <strong>${escapeHtml(status)}</strong>`;
     }
 
+
     function findNextMovementByType(selectedDate, wantedType, windowMinutes = 45){
       const current = nowMinutesUk();
 
@@ -1956,20 +1997,26 @@
         })
         .filter(Boolean)
         // include trains up to 2 mins just gone, because the website refreshes every 60 sec
-        .filter(x => x.diff >= -2 && x.diff <= windowMinutes)
+        .filter(x => x.diff >= -2)
+        .filter(x => windowMinutes == null ? true : x.diff <= windowMinutes)
         .sort((a,b) => a.diff - b.diff);
 
       return candidates[0] || null;
     }
 
-    function expectedEmptyText(typeLabel){
+
+
+    function expectedEmptyText(typeLabel, hasNoLimit = false){
+      if(hasNoLimit) return `No ${typeLabel} is currently listed for the rest of this date.`;
       return `No ${typeLabel} is expected through Acton Bridge within the next 45 minutes.`;
     }
 
-    function renderExpectedCard(className, title, result, emptyLabel){
+
+
+    function renderExpectedCard(className, title, result, emptyLabel, hasNoLimit = false){
       const text = result
         ? formatExpectedMovement(result.item, result.diff)
-        : expectedEmptyText(emptyLabel);
+        : expectedEmptyText(emptyLabel, hasNoLimit);
 
       return `
         <span class="expected-service-card ${className}">
@@ -1979,6 +2026,7 @@
       `;
     }
 
+
     function renderNextExpectedServices(){
       const box = document.getElementById("nextExpectedBox") || document.getElementById("nextServiceBox");
       if(!box) return;
@@ -1986,8 +2034,8 @@
       const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       const formattedDate = formatDate(selectedDate);
       const passenger = findNextMovementByType(selectedDate, "passenger", 45);
-      const freight = findNextMovementByType(selectedDate, "freight", 45);
-      const lightEngine = findNextMovementByType(selectedDate, "light_engine", 45);
+      const freight = findNextMovementByType(selectedDate, "freight", null);
+      const lightEngine = findNextMovementByType(selectedDate, "light_engine", null);
       const ecs = findNextMovementByType(selectedDate, "ecs", 45);
 
       box.innerHTML = `
@@ -1999,11 +2047,11 @@
             <span class="expected-date-clock">${escapeHtml(ukTimeString())}</span>
           </span>
           ${renderExpectedCard("passenger", "PASSENGER", passenger, "passenger train")}
-          ${renderExpectedCard("freight", "FREIGHT", freight, "confirmed freight train")}
-          ${renderExpectedCard("light-engine", "LIGHT ENGINE", lightEngine, "light-engine movement")}
+          ${renderExpectedCard("freight", "FREIGHT", freight, "freight train", true)}
+          ${renderExpectedCard("light-engine", "LIGHT ENGINE", lightEngine, "light-engine movement", true)}
           ${renderExpectedCard("ecs", "ECS/OTHER", ecs, "ECS/other movement")}
           <span class="expected-service-note">
-            Uses live/captured TRUST movements for all categories. If nothing is due soon, the card shows that no train is expected within 45 minutes.
+            Passenger and ECS/Other use a 45-minute live window. Freight and Light Engine show the next listed movement for the rest of the selected date.
           </span>
         </span>
       `;
@@ -3262,6 +3310,29 @@
         `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passenger} passenger, ${freight} freight, ${lightEngine} light engine and ${other} ECS/other.`;
     }
 
+
+    function normaliseStpType(value){
+      const raw = String(value || "").trim().toUpperCase();
+      if(!raw) return "—";
+
+      const cleaned = raw.replace(/[^A-Z0-9]/g, "");
+
+      if(cleaned === "P" || cleaned === "WTT" || cleaned === "PERMANENT") return "WTT";
+      if(cleaned === "N" || cleaned === "STP" || cleaned === "NEW") return "STP";
+      if(cleaned === "V" || cleaned === "VAR" || cleaned === "VARIATION") return "VAR";
+      if(cleaned === "O" || cleaned === "VSTP" || cleaned === "OVERLAY") return "VSTP";
+      if(cleaned === "C" || cleaned === "CANCELLED") return "CAN";
+
+      return raw;
+    }
+
+    function stpBadge(value){
+      const stp = normaliseStpType(value);
+      const cls = stp.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      return `<span class="stp-badge stp-${escapeHtml(cls)}">${escapeHtml(stp)}</span>`;
+    }
+
+
     function renderTable(){
       movements = Array.isArray(movements) ? movements : [];
       const body = document.getElementById("movementBody");
@@ -3289,6 +3360,7 @@
           <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
           <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
           <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
+          <td data-label="STP">${stpBadge(item.stpType)}</td>
           <td data-label="Data confidence">${confidenceHtml(item)}</td>
         `;
         body.appendChild(tr);
