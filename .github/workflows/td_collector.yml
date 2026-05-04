@@ -1,0 +1,37 @@
+name: Acton Bridge TD Collector
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: acton-bridge-td-collector
+  cancel-in-progress: false
+
+jobs:
+  td:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install stomp.py requests
+
+      - name: Run TD collector
+        env:
+          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
+          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TD_AREA_FILTER: "CE"
+          LISTEN_SECONDS: "3300"
+        run: python td_collector.py
