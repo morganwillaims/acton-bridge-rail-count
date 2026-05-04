@@ -915,7 +915,7 @@
     }
 
 
-    /* Latest captured movementss card */
+    /* Latest captured movements by category */
     #latestMovement {
       display:block;
       margin-top:8px;
@@ -923,8 +923,9 @@
 
     .latest-captured-grid {
       display:grid;
-      grid-template-columns:1fr;
+      grid-template-columns:repeat(2,minmax(0,1fr));
       gap:8px;
+      align-items:start;
     }
 
     .latest-captured-line {
@@ -934,6 +935,7 @@
       background:#f8fafc;
       border-left:4px solid #cbd5e1;
       line-height:1.35;
+      min-height:76px;
     }
 
     .latest-captured-line.passenger {
@@ -946,14 +948,14 @@
       border-left-color:#2563eb;
     }
 
-    .latest-captured-line.ecs {
-      background:#fff3c7;
-      border-left-color:#d97706;
-    }
-
     .latest-captured-line.light_engine {
       background:#ecfdf3;
       border-left-color:#16a34a;
+    }
+
+    .latest-captured-line.ecs {
+      background:#fff3c7;
+      border-left-color:#d97706;
     }
 
     .latest-captured-label {
@@ -968,8 +970,8 @@
 
     .latest-captured-label.passenger { color:#1d4ed8; }
     .latest-captured-label.freight { color:#1e40af; }
-    .latest-captured-label.ecs { color:#92400e; }
     .latest-captured-label.light_engine { color:#166534; }
+    .latest-captured-label.ecs { color:#92400e; }
 
     .latest-captured-main {
       display:block;
@@ -980,33 +982,18 @@
     }
 
     .latest-captured-note {
+      grid-column:1 / -1;
       display:block;
-      margin-top:8px;
+      margin-top:2px;
       color:#64748b;
       font-size:12px;
       font-weight:700;
     }
 
-    .mini-grid {
-      align-items:stretch !important;
-    }
-
-    .mini-card {
-      height:100%;
-    }
-
-    #nextServiceCard,
-    #tdApproachCard {
-      height:100%;
-    }
-
-
-    #latestMovement .latest-captured-grid {
-      min-height:100%;
-    }
-
-    .mini-grid > .mini-card {
-      overflow:visible;
+    @media(max-width:900px){
+      .latest-captured-grid {
+        grid-template-columns:1fr;
+      }
     }
 
 </style>
@@ -1104,7 +1091,7 @@
 
     <section class="mini-grid">
       <div class="mini-card">
-        <strong>Latest captured movementss</strong>
+        <strong>Latest captured movements</strong>
         <span id="latestMovement">None yet</span>
       </div>
       <div class="mini-card" id="nextServiceCard">
@@ -1411,93 +1398,6 @@
       };
     }
 
-
-    const NEXT_SERVICE_ROUTE_OVERRIDES = {
-      "4M62": { origin: "Arpley Sidings", destination: "Mountsorrel Sdgs" }
-    };
-
-    const NEXT_SERVICE_LOCATION_OVERRIDES = {
-      "MNTSDGS": "Mountsorrel Sdgs",
-      "MOUNTS": "Mountsorrel Sdgs",
-      "ARPLEYS": "Arpley Sidings",
-      "CREWMD": "Crewe C.S.",
-      "CREWECS": "Crewe C.S."
-    };
-
-    function nextServiceLocationName(name, tiploc){
-      const rawName = String(name || "").trim();
-      const rawTiploc = String(tiploc || "").trim().toUpperCase();
-
-      if(rawName && rawName !== "Unknown" && rawName !== "Route pending" && !/^[A-Z0-9]{5,8}$/.test(rawName) && !/^\d{4,}$/.test(rawName)){
-        return rawName;
-      }
-
-      if(NEXT_SERVICE_LOCATION_OVERRIDES[rawTiploc]) return NEXT_SERVICE_LOCATION_OVERRIDES[rawTiploc];
-      if(NEXT_SERVICE_LOCATION_OVERRIDES[rawName.toUpperCase()]) return NEXT_SERVICE_LOCATION_OVERRIDES[rawName.toUpperCase()];
-
-      return rawName && rawName !== "Unknown" ? rawName : "Route pending";
-    }
-
-    function applyNextServiceRouteOverride(item){
-      const override = NEXT_SERVICE_ROUTE_OVERRIDES[String(item?.headcode || "").toUpperCase()];
-      if(!override) return item;
-
-      return {
-        ...item,
-        origin: override.origin || item.origin,
-        destination: override.destination || item.destination
-      };
-    }
-
-    function hasUsefulNextRoute(item){
-      return item && item.origin && item.destination && item.origin !== "Route pending" && item.destination !== "Route pending";
-    }
-
-    function chooseNearestByType(upcoming, type){
-      const nowSeconds = typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60;
-
-      const category = upcoming
-        .filter(item => item.type === type)
-        .sort((a,b) => {
-          const aFuture = a.bookedSeconds >= nowSeconds;
-          const bFuture = b.bookedSeconds >= nowSeconds;
-
-          // Prefer future services over overdue ones so the widget moves on cleanly.
-          if(aFuture !== bFuture) return aFuture ? -1 : 1;
-
-          // Among future services, nearest soonest first.
-          if(aFuture && bFuture) return a.bookedSeconds - b.bookedSeconds;
-
-          // Among overdue services, most recently overdue first.
-          return b.bookedSeconds - a.bookedSeconds;
-        });
-
-      // Prefer a near future service with a useful route, but don't jump hours ahead just for a route.
-      const best = category[0] || null;
-      if(!best) return null;
-
-      const bestRoute = category.find(item => hasUsefulNextRoute(item));
-      if(bestRoute && best.bookedSeconds >= nowSeconds && bestRoute.bookedSeconds - best.bookedSeconds <= 30 * 60){
-        return bestRoute;
-      }
-
-      return best;
-    }
-
-    function dedupeUpcomingServices(items){
-      const seen = new Set();
-      const result = [];
-
-      for(const item of items){
-        const key = [item.type, item.headcode, item.bookedTime, item.origin || "", item.destination || ""].join("|");
-        if(seen.has(key)) continue;
-        seen.add(key);
-        result.push(item);
-      }
-
-      return result;
-    }
-
     function scheduleTypeFromHeadcode(headcode){
       const text = String(headcode || "").trim().toUpperCase();
       if(/^0/.test(text)) return "light_engine";
@@ -1602,8 +1502,8 @@
             const bookedTime = row.pass_time || row.departure || row.arrival;
             const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
             const headcode = row.signalling_id || service?.signalling_id || "Unknown";
-            const originName = nextServiceLocationName(service?.origin_name, service?.origin_tiploc);
-            const destinationName = nextServiceLocationName(service?.destination_name, service?.destination_tiploc);
+            const originName = displayLocationName(service?.origin_name);
+            const destinationName = displayLocationName(service?.destination_name);
             const type = scheduleTypeFromHeadcode(headcode);
 
             return {
@@ -1891,8 +1791,8 @@
             bookedMinutes,
             bookedSeconds,
             platform: row.platform || "—",
-            origin: nextServiceLocationName(service?.origin_name, service?.origin_tiploc),
-            destination: nextServiceLocationName(service?.destination_name, service?.destination_tiploc),
+            origin: displayLocationName(service?.origin_name),
+            destination: displayLocationName(service?.destination_name),
             toc: service?.atoc_code || "",
             service,
             sourceLabel: "Booked"
@@ -1913,8 +1813,8 @@
             bookedMinutes,
             bookedSeconds,
             platform: row.platform || "—",
-            origin: nextServiceLocationName(service?.origin_name, service?.origin_tiploc),
-            destination: nextServiceLocationName(service?.destination_name, service?.destination_tiploc),
+            origin: displayLocationName(service?.origin_name),
+            destination: displayLocationName(service?.destination_name),
             toc: service?.atoc_code || "",
             service,
             sourceLabel: "VSTP"
@@ -2170,9 +2070,19 @@
         ? "Live Network Rail data captured for this date"
         : "No live Network Rail data captured for this date yet";
 
-      document.getElementById("latestMovement").textContent = newestReal
-        ? `${newestReal.time} — ${newestReal.trainId} — ${newestReal.origin} to ${newestReal.destination}`
-        : "None yet";
+      const latestPassenger = latestByType(daily, "passenger");
+      const latestFreight = latestByType(daily, "freight");
+      const latestLightEngine = latestByType(daily, "light_engine");
+      const latestEcs = latestByType(daily, "other");
+
+      document.getElementById("latestMovement").innerHTML =
+        `<span class="latest-captured-grid">` +
+        formatLatestCaptured("Last Passenger", latestPassenger, "passenger") +
+        formatLatestCaptured("Last Freight", latestFreight, "freight") +
+        formatLatestCaptured("Last Light Engine", latestLightEngine, "light_engine") +
+        formatLatestCaptured("Last ECS / Other", latestEcs, "ecs") +
+        `<span class="latest-captured-note">Latest captured TRUST movements for the selected date.</span>` +
+        `</span>`;
 
       document.getElementById("heroLatestTrain").textContent = newestVisible
         ? `${newestVisible.time} — ${newestVisible.trainId} — ${displayTrainType(newestVisible.trainType,newestVisible.trainId)}`
