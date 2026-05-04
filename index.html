@@ -914,6 +914,101 @@
       margin-bottom:2px;
     }
 
+
+    /* Latest captured movements card */
+    #latestMovement {
+      display:block;
+      margin-top:8px;
+    }
+
+    .latest-captured-grid {
+      display:grid;
+      grid-template-columns:1fr;
+      gap:8px;
+    }
+
+    .latest-captured-line {
+      display:block;
+      padding:8px 10px;
+      border-radius:10px;
+      background:#f8fafc;
+      border-left:4px solid #cbd5e1;
+      line-height:1.35;
+    }
+
+    .latest-captured-line.passenger {
+      background:#eef6ff;
+      border-left-color:#3b82f6;
+    }
+
+    .latest-captured-line.freight {
+      background:#e6f0ff;
+      border-left-color:#2563eb;
+    }
+
+    .latest-captured-line.ecs {
+      background:#fff3c7;
+      border-left-color:#d97706;
+    }
+
+    .latest-captured-line.light_engine {
+      background:#ecfdf3;
+      border-left-color:#16a34a;
+    }
+
+    .latest-captured-label {
+      display:block;
+      font-size:.78rem;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      color:#64748b;
+      margin-bottom:3px;
+    }
+
+    .latest-captured-label.passenger { color:#1d4ed8; }
+    .latest-captured-label.freight { color:#1e40af; }
+    .latest-captured-label.ecs { color:#92400e; }
+    .latest-captured-label.light_engine { color:#166534; }
+
+    .latest-captured-main {
+      display:block;
+      font-weight:800;
+      color:var(--text);
+      word-break:break-word;
+      line-height:1.3;
+    }
+
+    .latest-captured-note {
+      display:block;
+      margin-top:8px;
+      color:#64748b;
+      font-size:12px;
+      font-weight:700;
+    }
+
+    .mini-grid {
+      align-items:stretch !important;
+    }
+
+    .mini-card {
+      height:100%;
+    }
+
+    #nextServiceCard,
+    #tdApproachCard {
+      height:100%;
+    }
+
+
+    #latestMovement .latest-captured-grid {
+      min-height:100%;
+    }
+
+    .mini-grid > .mini-card {
+      overflow:visible;
+    }
+
 </style>
 </head>
 <body>
@@ -1009,7 +1104,7 @@
 
     <section class="mini-grid">
       <div class="mini-card">
-        <strong>Latest captured movement</strong>
+        <strong>Latest captured movements</strong>
         <span id="latestMovement">None yet</span>
       </div>
       <div class="mini-card" id="nextServiceCard">
@@ -1915,6 +2010,34 @@
     }
 
     function getDailyMovements(date){ return movements.filter(item=>item.date===date); }
+
+    function latestByType(items, type){
+      return items
+        .filter(item => item.trainType === type)
+        .sort((a,b) => String(b.time || "").localeCompare(String(a.time || "")))[0] || null;
+    }
+
+    function formatLatestCaptured(label, item, cssClass){
+      if(!item){
+        return `
+          <span class="latest-captured-line ${cssClass}">
+            <span class="latest-captured-label ${cssClass}">${label}</span>
+            <span class="latest-captured-main">None captured yet</span>
+          </span>
+        `;
+      }
+
+      const originText = item.origin && item.origin !== "Unknown" ? item.origin : "Unknown";
+      const destinationText = item.destination && item.destination !== "Unknown" ? item.destination : "Unknown";
+
+      return `
+        <span class="latest-captured-line ${cssClass}">
+          <span class="latest-captured-label ${cssClass}">${label}</span>
+          <span class="latest-captured-main">${escapeHtml(item.time)} — ${escapeHtml(item.trainId)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}</span>
+        </span>
+      `;
+    }
+
     function countByType(items,type){ return items.filter(item=>item.trainType===type).length; }
 
     function getFilteredMovements(){
