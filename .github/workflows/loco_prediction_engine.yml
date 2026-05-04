@@ -1,0 +1,47 @@
+name: Acton Bridge Loco Prediction Engine
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Refresh predictions every morning and early afternoon UTC
+    - cron: "15 5 * * *"
+    - cron: "15 12 * * *"
+
+concurrency:
+  group: acton-bridge-loco-predictions
+  cancel-in-progress: false
+
+jobs:
+  predict-locos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run loco prediction engine
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          # Predict for today + next 3 days
+          LOCO_PREDICT_DAYS_AHEAD: "3"
+
+          # Look back over recent approved sightings
+          LOCO_PREDICT_LOOKBACK_DAYS: "21"
+
+          # At least 2 sightings required before prediction
+          LOCO_PREDICT_MIN_EVIDENCE: "2"
+
+          # Top loco must account for at least 60% of known sightings
+          LOCO_PREDICT_MIN_TOP_SHARE: "0.60"
+        run: python loco_prediction_runner.py
