@@ -213,7 +213,7 @@
 
     .mini-grid {
       display:grid;
-      grid-template-columns:repeat(3,1fr);
+      grid-template-columns:repeat(4,1fr);
       gap:12px;
       margin-bottom:16px;
     }
@@ -659,7 +659,11 @@
       </div>
       <div class="mini-card" id="nextServiceCard">
         <strong>Next expected services</strong>
-        <span id="nextServiceBox">Checking passenger and freight schedule...</span>
+        <span id="nextServiceBox">Checking passenger, freight and ECS schedule...</span>
+      </div>
+      <div class="mini-card" id="tdApproachCard">
+        <strong>TD live approach</strong>
+        <span id="tdApproachBox">TD layer not active yet</span>
       </div>
     </section>
 
@@ -927,118 +931,6 @@
     }
 
 
-    function scheduleTypeFromHeadcode(headcode){
-      const text = String(headcode || "").trim().toUpperCase();
-      if(/^[4678]/.test(text)) return "freight";
-      if(/^[35]/.test(text)) return "ecs";
-      if(/^[0129]/.test(text)) return "passenger";
-      return "other";
-    }
-
-    async function loadNextScheduledService(){
-      const box = document.getElementById("nextServiceBox");
-      const card = document.getElementById("nextServiceCard") || (box ? box.closest(".mini-card") : null);
-      if(!box) return;
-
-      try {
-        const selectedDate = document.getElementById("dateInput").value || todayIso();
-        const today = todayIso();
-
-        if(selectedDate !== today){
-          if(card) card.classList.add("hidden");
-          box.textContent = "";
-          return;
-        }
-
-        if(card) card.classList.remove("hidden");
-        box.textContent = "Checking passenger and freight schedule...";
-
-        const { data, error } = await supabaseClient
-          .from("schedule_locations")
-          .select(`
-            pass_time,
-            departure,
-            arrival,
-            platform,
-            line,
-            path,
-            signalling_id,
-            schedule_services (
-              signalling_id,
-              origin_tiploc,
-              origin_name,
-              destination_tiploc,
-              destination_name,
-              atoc_code,
-              schedule_start_date,
-              schedule_end_date,
-              days_runs,
-              stp_indicator
-            )
-          `)
-          .eq("tiploc", "ACBG")
-          .limit(5000);
-
-        if(error){
-          console.error("Next booked service error:", error);
-          box.textContent = "Booked schedule unavailable";
-          return;
-        }
-
-        const nowMinutes = typeof ukMinutesNow === "function" ? ukMinutesNow() : localMinutesNow();
-
-        const upcoming = (data || [])
-          .map(row => {
-            const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
-            const bookedTime = row.pass_time || row.departure || row.arrival;
-            const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
-            const headcode = row.signalling_id || service?.signalling_id || "Unknown";
-            const originName = displayLocationName(service?.origin_name);
-            const destinationName = displayLocationName(service?.destination_name);
-            const type = scheduleTypeFromHeadcode(headcode);
-
-            return {
-              headcode,
-              type,
-              bookedTime,
-              bookedMinutes,
-              platform: row.platform || "—",
-              origin: originName,
-              destination: destinationName,
-              toc: service?.atoc_code || "",
-              service
-            };
-          })
-          .filter(item => item.service)
-          .filter(item => item.bookedMinutes !== null)
-          .filter(item => item.bookedMinutes >= nowMinutes)
-          .filter(item => activeScheduleOnDate(item.service, selectedDate))
-          .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
-          .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
-          .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
-
-        const nextPassenger = upcoming.find(item => item.type === "passenger");
-        const nextFreight = upcoming.find(item => item.type === "freight");
-        const nextEcs = upcoming.find(item => item.type === "ecs");
-
-        function formatNext(label, item){
-          if(!item) return `<span class="next-service-line"><strong>${label}:</strong> none found today</span>`;
-          const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
-          return `<span class="next-service-line"><strong>${label}:</strong> ${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)}</span>`;
-        }
-
-        box.innerHTML =
-          formatNext("Passenger", nextPassenger) +
-          formatNext("Freight", nextFreight) +
-          formatNext("ECS/Other", nextEcs) +
-          `<span class="next-service-warning">Booked schedule only — live running may differ.</span>`;
-      } catch(err) {
-        console.error("Next service box failed:", err);
-        box.textContent = "Booked schedule unavailable";
-      }
-    }
-
-
 
     function scheduleTypeFromHeadcode(headcode){
       const text = String(headcode || "").trim().toUpperCase();
@@ -1060,7 +952,6 @@
 
       return capturedToday.some(movement => {
         if(String(movement.trainId || "").toUpperCase() !== String(item.headcode || "").toUpperCase()) return false;
-
         const actualSeconds = timeToSeconds(movement.time);
         if(actualSeconds === null) return false;
 
@@ -1070,7 +961,6 @@
           Math.abs(actualSeconds - (bookedSeconds + 86400))
         );
 
-        // Generous window to handle early/late reporting and midnight edge cases.
         return diff <= 4 * 60 * 60;
       });
     }
@@ -1095,9 +985,9 @@
         const nowSeconds = typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60;
         const nowClock = typeof ukNowLong === "function" ? ukNowLong() : now24h();
 
-        box.innerHTML = `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>Checking passenger, freight and ECS schedule...`;
+        box.innerHTML = `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>Checking booked + VSTP schedules...`;
 
-        const [{ data: scheduleData, error: scheduleError }, { data: movementData, error: movementError }] = await Promise.all([
+        const [bookedResult, vstpResult, movementResult] = await Promise.all([
           supabaseClient
             .from("schedule_locations")
             .select(`
@@ -1125,6 +1015,32 @@
             .limit(5000),
 
           supabaseClient
+            .from("vstp_locations")
+            .select(`
+              pass_time,
+              departure,
+              arrival,
+              platform,
+              line,
+              path,
+              signalling_id,
+              vstp_services (
+                signalling_id,
+                origin_tiploc,
+                origin_name,
+                destination_tiploc,
+                destination_name,
+                atoc_code,
+                schedule_start_date,
+                schedule_end_date,
+                days_runs,
+                stp_indicator
+              )
+            `)
+            .eq("tiploc", "ACBG")
+            .limit(2000),
+
+          supabaseClient
             .from("station_movements")
             .select("running_date,actual_time,planned_time,train_id,source")
             .eq("station_crs", "ACB")
@@ -1133,55 +1049,77 @@
             .limit(1000)
         ]);
 
-        if(scheduleError){
-          console.error("Next expected service schedule error:", scheduleError);
-          box.textContent = "Booked schedule unavailable";
-          return;
+        if(bookedResult.error){
+          console.error("Booked schedule error:", bookedResult.error);
         }
 
-        if(movementError){
-          console.warn("Next expected service live movement warning:", movementError);
+        if(vstpResult.error){
+          console.warn("VSTP schedule unavailable:", vstpResult.error);
         }
 
-        const capturedToday = (movementData || []).map(row => ({
+        if(movementResult.error){
+          console.warn("Live movement warning:", movementResult.error);
+        }
+
+        const capturedToday = (movementResult.data || []).map(row => ({
           trainId: row.train_id,
           time: row.actual_time || row.planned_time
         }));
 
+        function mapScheduleRow(row, sourceLabel){
+          const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
+          const bookedTime = row.pass_time || row.departure || row.arrival;
+          const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
+          const bookedSeconds = bookedMinutes === null ? null : bookedMinutes * 60;
+          const headcode = row.signalling_id || service?.signalling_id || "Unknown";
+          return {
+            headcode,
+            type: scheduleTypeFromHeadcode(headcode),
+            bookedTime,
+            bookedMinutes,
+            bookedSeconds,
+            platform: row.platform || "—",
+            origin: displayLocationName(service?.origin_name),
+            destination: displayLocationName(service?.destination_name),
+            toc: service?.atoc_code || "",
+            service,
+            sourceLabel
+          };
+        }
+
+        function mapVstpRow(row){
+          const service = Array.isArray(row.vstp_services) ? row.vstp_services[0] : row.vstp_services;
+          const bookedTime = row.pass_time || row.departure || row.arrival;
+          const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
+          const bookedSeconds = bookedMinutes === null ? null : bookedMinutes * 60;
+          const headcode = row.signalling_id || service?.signalling_id || "Unknown";
+          return {
+            headcode,
+            type: scheduleTypeFromHeadcode(headcode),
+            bookedTime,
+            bookedMinutes,
+            bookedSeconds,
+            platform: row.platform || "—",
+            origin: displayLocationName(service?.origin_name),
+            destination: displayLocationName(service?.destination_name),
+            toc: service?.atoc_code || "",
+            service,
+            sourceLabel: "VSTP"
+          };
+        }
+
+        const bookedRows = (bookedResult.data || []).map(row => mapScheduleRow(row, "Booked"));
+        const vstpRows = (vstpResult.data || []).map(mapVstpRow);
+
         const overdueWindowSeconds = 45 * 60;
 
-        const upcoming = (scheduleData || [])
-          .map(row => {
-            const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
-            const bookedTime = row.pass_time || row.departure || row.arrival;
-            const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
-            const bookedSeconds = bookedMinutes === null ? null : bookedMinutes * 60;
-            const headcode = row.signalling_id || service?.signalling_id || "Unknown";
-            const originName = displayLocationName(service?.origin_name);
-            const destinationName = displayLocationName(service?.destination_name);
-            const type = scheduleTypeFromHeadcode(headcode);
-
-            return {
-              headcode,
-              type,
-              bookedTime,
-              bookedMinutes,
-              bookedSeconds,
-              platform: row.platform || "—",
-              origin: originName,
-              destination: destinationName,
-              toc: service?.atoc_code || "",
-              service
-            };
-          })
+        const upcoming = bookedRows.concat(vstpRows)
           .filter(item => item.service)
           .filter(item => item.bookedSeconds !== null)
           .filter(item => activeScheduleOnDate(item.service, selectedDate))
           .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
           .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
-          // If it has already been captured by the live TRUST feed, move on to the next one.
           .filter(item => !isCapturedAlready(item, capturedToday))
-          // Keep slightly overdue booked services visible for 45 mins in case they are late.
           .filter(item => item.bookedSeconds >= nowSeconds - overdueWindowSeconds)
           .sort((a,b) => a.bookedSeconds - b.bookedSeconds);
 
@@ -1195,10 +1133,11 @@
           }
 
           const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
+          const source = item.sourceLabel === "VSTP" ? " · VSTP" : "";
           const overdue = item.bookedSeconds < nowSeconds;
           const status = overdue
             ? `<span class="next-service-status overdue">overdue / not yet captured</span>`
-            : `<span class="next-service-status">due</span>`;
+            : `<span class="next-service-status">due${source}</span>`;
 
           return `<span class="next-service-line"><strong>${label}:</strong> ${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)} ${status}</span>`;
         }
@@ -1208,7 +1147,7 @@
           formatNext("Passenger", nextPassenger) +
           formatNext("Freight", nextFreight) +
           formatNext("ECS/Other", nextEcs) +
-          `<span class="next-service-warning">Uses booked schedule plus captured TRUST passes. It is not a live delay predictor.</span>`;
+          `<span class="next-service-warning">Uses booked schedule + VSTP + captured TRUST passes. TD approach shown separately when mapped.</span>`;
       } catch(err) {
         console.error("Next expected service box failed:", err);
         box.textContent = "Booked schedule unavailable";
@@ -1243,6 +1182,7 @@
       if(!userPickedArchiveDate) document.getElementById("dateInput").value = todayIso();
       renderAll();
       loadNextScheduledService();
+    loadTdApproachStatus();
     }
 
     function getDailyMovements(date){ return movements.filter(item=>item.date===date); }
@@ -1421,6 +1361,7 @@
     loadNextScheduledService();
     setInterval(loadMovements,60000);
     setInterval(loadNextScheduledService,15000);
+    setInterval(loadTdApproachStatus,15000);
     setInterval(updateNextServiceClockOnly,1000);
   </script>
 </body>
