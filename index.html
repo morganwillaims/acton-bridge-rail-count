@@ -802,6 +802,118 @@
       }
     }
 
+
+    /* Compact status area: removes tall empty cards */
+    .quick-filters {
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      align-items:stretch;
+    }
+
+    .quick-filter-buttons {
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:center;
+    }
+
+    .collector-inline-status {
+      background:#f1f7f8;
+      border-left:5px solid var(--teal);
+      padding:10px 12px;
+      font-weight:700;
+      color:var(--text);
+      box-shadow:0 2px 8px rgba(15,23,42,.08);
+    }
+
+    .collector-inline-status strong {
+      color:#64748b;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      font-size:.82rem;
+      margin-right:6px;
+    }
+
+    .mini-grid {
+      display:grid;
+      grid-template-columns:minmax(240px,.75fr) minmax(420px,1.45fr) minmax(300px,.95fr);
+      gap:12px;
+      align-items:start;
+    }
+
+    .mini-card {
+      min-height:0;
+      align-self:start;
+    }
+
+    #nextServiceCard,
+    #tdApproachCard {
+      min-height:0;
+    }
+
+    #nextServiceCard .next-service-widget {
+      grid-template-columns:120px 1fr;
+      gap:10px;
+    }
+
+    #nextServiceCard .next-service-body {
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:8px;
+    }
+
+    #nextServiceCard .next-service-warning {
+      grid-column:1 / -1;
+    }
+
+    #nextServiceCard .next-service-line {
+      margin:0;
+    }
+
+    #tdApproachCard .td-approach-grid {
+      display:grid;
+      grid-template-columns:1fr;
+      gap:8px;
+    }
+
+    @media(max-width:1200px){
+      .mini-grid {
+        grid-template-columns:1fr;
+      }
+
+      #nextServiceCard .next-service-body {
+        grid-template-columns:1fr;
+      }
+
+      #nextServiceCard .next-service-widget {
+        grid-template-columns:1fr;
+      }
+    }
+
+
+    /* Final layout override */
+    .mini-grid {
+      grid-template-columns:minmax(240px,.75fr) minmax(420px,1.45fr) minmax(300px,.95fr) !important;
+      align-items:start !important;
+    }
+    .mini-card { min-height:0 !important; align-self:start !important; }
+    @media(max-width:1200px){
+      .mini-grid { grid-template-columns:1fr !important; }
+    }
+
+
+    #nextServiceCard .next-service-line {
+      padding:7px 9px;
+    }
+    #nextServiceCard .next-service-main {
+      font-size:.95rem;
+      line-height:1.28;
+    }
+    #nextServiceCard .next-service-label {
+      margin-bottom:2px;
+    }
+
 </style>
 </head>
 <body>
@@ -872,11 +984,17 @@
     </section>
 
     <section class="quick-filters">
-      <button class="quick-filter-btn active" data-filter="all">All</button>
-      <button class="quick-filter-btn" data-filter="passenger">Passenger</button>
-      <button class="quick-filter-btn" data-filter="freight">Freight</button>
-      <button class="quick-filter-btn" data-filter="light_engine">Light Engine</button>
-      <button class="quick-filter-btn" data-filter="other">ECS / Other</button>
+      <div class="collector-inline-status">
+        <strong>Collector status:</strong>
+        <span id="collectorStatus">Checking live data...</span>
+      </div>
+      <div class="quick-filter-buttons">
+        <button class="quick-filter-btn active" data-filter="all">All</button>
+        <button class="quick-filter-btn" data-filter="passenger">Passenger</button>
+        <button class="quick-filter-btn" data-filter="freight">Freight</button>
+        <button class="quick-filter-btn" data-filter="light_engine">Light Engine</button>
+        <button class="quick-filter-btn" data-filter="other">ECS / Other</button>
+      </div>
     </section>
 
     <section class="stats-grid">
@@ -890,10 +1008,6 @@
     </section>
 
     <section class="mini-grid">
-      <div class="mini-card">
-        <strong>Collector status</strong>
-        <span id="collectorStatus">Checking live data...</span>
-      </div>
       <div class="mini-card">
         <strong>Latest captured movement</strong>
         <span id="latestMovement">None yet</span>
