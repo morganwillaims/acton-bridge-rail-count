@@ -2289,10 +2289,14 @@
 
       function chooseNext(items, type, options = {}){
         const allowBookedOnly = Boolean(options.allowBookedOnly);
+        const overdueGraceSeconds = Number(options.overdueGraceSeconds ?? 90);
+        const maxAheadSeconds = options.maxAheadSeconds == null ? null : Number(options.maxAheadSeconds);
+
         const pool = items
           .filter(item => item.type === type)
           .filter(item => item.bookedSeconds !== null)
-          .filter(item => item.bookedSeconds >= nowSeconds - 90)
+          .filter(item => item.bookedSeconds >= nowSeconds - overdueGraceSeconds)
+          .filter(item => maxAheadSeconds == null ? true : item.bookedSeconds <= nowSeconds + maxAheadSeconds)
           .filter(item => allowBookedOnly || item.sourceLabel !== "Booked")
           .sort((a,b) => {
             const sourceRank = sourcePriority(a.sourceLabel) - sourcePriority(b.sourceLabel);
@@ -2411,20 +2415,36 @@
             return [];
           }
 
-          return (result.data || []).map(row => ({
-            headcode: row.train_id,
-            trainId: row.train_id,
-            type: headcodeType(row.train_id),
-            bookedTime: row.actual_time || row.planned_time,
-            bookedSeconds: toSeconds(row.actual_time || row.planned_time),
-            time: row.actual_time || row.planned_time,
-            platform: row.platform || "—",
-            origin: cleanRouteName(row.origin),
-            destination: cleanRouteName(row.destination),
-            toc: row.toc || "",
-            service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-            sourceLabel: "TRUST"
-          }));
+          return (result.data || []).map(row => {
+            const actualTime = row.actual_time || "";
+            const plannedTime = row.planned_time || "";
+            const displayTime = actualTime || plannedTime;
+            const actualSeconds = toSeconds(actualTime);
+            const plannedSeconds = toSeconds(plannedTime);
+            const delayMinutes = actualSeconds !== null && plannedSeconds !== null
+              ? Math.round((actualSeconds - plannedSeconds) / 60)
+              : null;
+
+            return {
+              headcode: row.train_id,
+              trainId: row.train_id,
+              type: headcodeType(row.train_id),
+              bookedTime: displayTime,
+              bookedSeconds: toSeconds(displayTime),
+              scheduledTime: plannedTime,
+              scheduledSeconds: plannedSeconds,
+              actualTime,
+              actualSeconds,
+              delayMinutes,
+              time: displayTime,
+              platform: row.platform || "—",
+              origin: cleanRouteName(row.origin),
+              destination: cleanRouteName(row.destination),
+              toc: row.toc || "",
+              service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
+              sourceLabel: "TRUST"
+            };
+          });
         } catch(err) {
           console.warn("Captured movement lookup failed:", err);
           return [];
@@ -2491,18 +2511,33 @@
 
         const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
         const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
+        const allScheduleWithFreight = dedupeByHeadcodeTime(bookedClean.concat(vstpClean).concat(tdRows).concat(capturedRows));
 
         const nextPassenger = chooseNext(allScheduleForPassenger, "passenger", { allowBookedOnly:true });
 
-        // Freight/light engine:
-        // 1) TD/VSTP/TRUST if genuinely confirmed.
-        // 2) Fallback to booked 0XXX light-engine only so the box is not permanently empty.
-        // 3) Do NOT use booked freight as confirmed, because many freight paths are Q-path/as-required.
-        const nextFreight = chooseNext(allLiveOrConfirmed, "freight", { allowBookedOnly:false });
-        const nextLightEngine = chooseNext(allLiveOrConfirmed, "light_engine", { allowBookedOnly:false })
-          || chooseNext(bookedClean, "light_engine", { allowBookedOnly:true });
+        // Freight/light engine now behave like passenger:
+        // show the next booked/confirmed working for the selected date, but prefer TD/VSTP/TRUST when available.
+        // Keep overdue booked freight visible for 30 minutes so it can show "overdue / possibly late".
+        const nextFreight = chooseNext(allScheduleWithFreight, "freight", {
+          allowBookedOnly:true,
+          overdueGraceSeconds:30 * 60
+        });
+
+        const nextLightEngine = chooseNext(allScheduleWithFreight, "light_engine", {
+          allowBookedOnly:true,
+          overdueGraceSeconds:30 * 60
+        });
 
         const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
+
+        function findRelatedBookedRoute(item){
+          if(!item) return null;
+          const itemSeconds = item.bookedSeconds;
+          return bookedRows
+            .filter(row => String(row.headcode || "").toUpperCase() === String(item.headcode || "").toUpperCase())
+            .filter(row => row.bookedSeconds !== null && itemSeconds !== null && Math.abs(row.bookedSeconds - itemSeconds) <= 4 * 60 * 60)
+            .sort((a,b) => Math.abs(a.bookedSeconds - itemSeconds) - Math.abs(b.bookedSeconds - itemSeconds))[0] || null;
+        }
 
         function formatNext(label, item, cssClass, emptyText){
           if(!item){
@@ -2515,7 +2550,18 @@
           }
 
           const source = item.sourceLabel === "Booked" ? "booked" : item.sourceLabel === "TD" ? "TD live" : item.sourceLabel === "VSTP" ? "confirmed VSTP" : "captured TRUST";
-          const status = `<span class="next-service-status">${escapeHtml(source)}</span>`;
+
+          let timingText = source;
+          if(item.delayMinutes !== null && item.delayMinutes !== undefined){
+            if(item.delayMinutes > 0) timingText = `${item.delayMinutes} min late · ${source}`;
+            else if(item.delayMinutes < 0) timingText = `${Math.abs(item.delayMinutes)} min early · ${source}`;
+            else timingText = `on time · ${source}`;
+          } else if(item.sourceLabel === "Booked" && item.bookedSeconds !== null && item.bookedSeconds < nowSeconds - 60) {
+            const overdueMins = Math.max(1, Math.round((nowSeconds - item.bookedSeconds) / 60));
+            timingText = `overdue by ${overdueMins} min / not yet captured`;
+          }
+
+          const status = `<span class="next-service-status">${escapeHtml(timingText)}</span>`;
 
           if(item.sourceLabel === "TD"){
             return `
@@ -2526,9 +2572,14 @@
             `;
           }
 
+          const relatedBooked = findRelatedBookedRoute(item);
           const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
-          const originText = item.origin && item.origin !== "Unknown" ? item.origin : "Route pending";
-          const destinationText = item.destination && item.destination !== "Unknown" ? item.destination : "Route pending";
+          const originText = item.origin && item.origin !== "Unknown" && item.origin !== "Route pending"
+            ? item.origin
+            : (relatedBooked?.origin || "Route pending");
+          const destinationText = item.destination && item.destination !== "Unknown" && item.destination !== "Route pending"
+            ? item.destination
+            : (relatedBooked?.destination || "Route pending");
 
           return `
             <span class="next-service-line ${cssClass}">
@@ -2543,10 +2594,10 @@
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No confirmed freight currently") +
-          formatNext("Light Engine", nextLightEngine, "light_engine", "No light-engine path found") +
+          formatNext("Freight", nextFreight, "freight", "No freight working listed for the rest of this date") +
+          formatNext("Light Engine", nextLightEngine, "light_engine", "No light-engine working listed for the rest of this date") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Freight uses confirmed VSTP / TD / captured TRUST only. Light engine uses confirmed data first, then booked 0XXX fallback.</span>` +
+          `<span class="next-service-warning">Freight and light-engine cards now use booked schedule plus VSTP / TD / captured TRUST. If booked time has passed but it has not been captured, the card shows it as overdue.</span>` +
           `</div></div>`;
 
       } catch(err) {
