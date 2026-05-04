@@ -290,6 +290,7 @@
       align-items:center;
     }
     .panel-title small { font-weight:normal; opacity:.95; text-align:right; }
+    #pageRefreshed strong { font-weight:800; }
 
     .table-wrap { overflow-x:auto; }
 
@@ -592,7 +593,7 @@
           <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li><strong>Today uses UK time</strong> via Europe/London, so it changes date correctly at UK midnight.</li>
-          <li><strong>Next booked services</strong> only appears for Today and uses UK time. It shows booked passenger, freight and ECS/other services separately; live running may differ.</li>
+          <li><strong>Next expected services</strong> only appears for Today and uses UK time. It shows booked passenger, freight and ECS/other services separately, removes trains once captured by TRUST, and refreshes frequently; it is not a live delay predictor.</li>
         </ul>
       </div>
     </details>
@@ -657,7 +658,7 @@
         <span id="latestMovement">None yet</span>
       </div>
       <div class="mini-card" id="nextServiceCard">
-        <strong>Next booked services</strong>
+        <strong>Next expected services</strong>
         <span id="nextServiceBox">Checking passenger and freight schedule...</span>
       </div>
     </section>
@@ -728,6 +729,30 @@
       }).formatToParts(new Date());
       const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]));
       return `${lookup.year}-${lookup.month}-${lookup.day}`;
+    }
+
+
+    function ukNowLong(){
+      return new Intl.DateTimeFormat("en-GB", {
+        timeZone:"Europe/London",
+        hour:"2-digit",
+        minute:"2-digit",
+        second:"2-digit",
+        hour12:false
+      }).format(new Date());
+    }
+
+    function ukSecondsNow(){
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone:"Europe/London",
+        hour:"2-digit",
+        minute:"2-digit",
+        second:"2-digit",
+        hour12:false
+      }).formatToParts(new Date());
+
+      const lookup = Object.fromEntries(parts.map(part => [part.type, part.value]));
+      return Number(lookup.hour) * 3600 + Number(lookup.minute) * 60 + Number(lookup.second);
     }
 
     function ukNow24h(){
@@ -1014,6 +1039,190 @@
     }
 
 
+
+    function scheduleTypeFromHeadcode(headcode){
+      const text = String(headcode || "").trim().toUpperCase();
+      if(/^[4678]/.test(text)) return "freight";
+      if(/^[35]/.test(text)) return "ecs";
+      if(/^[0129]/.test(text)) return "passenger";
+      return "other";
+    }
+
+    function timeToSeconds(value){
+      const minutes = parseScheduleTimeToMinutes(value);
+      if(minutes === null) return null;
+      return minutes * 60;
+    }
+
+    function isCapturedAlready(item, capturedToday){
+      const bookedSeconds = item.bookedSeconds;
+      if(bookedSeconds === null) return false;
+
+      return capturedToday.some(movement => {
+        if(String(movement.trainId || "").toUpperCase() !== String(item.headcode || "").toUpperCase()) return false;
+
+        const actualSeconds = timeToSeconds(movement.time);
+        if(actualSeconds === null) return false;
+
+        const diff = Math.min(
+          Math.abs(actualSeconds - bookedSeconds),
+          Math.abs((actualSeconds + 86400) - bookedSeconds),
+          Math.abs(actualSeconds - (bookedSeconds + 86400))
+        );
+
+        // Generous window to handle early/late reporting and midnight edge cases.
+        return diff <= 4 * 60 * 60;
+      });
+    }
+
+    async function loadNextScheduledService(){
+      const box = document.getElementById("nextServiceBox");
+      const card = document.getElementById("nextServiceCard") || (box ? box.closest(".mini-card") : null);
+      if(!box) return;
+
+      try {
+        const selectedDate = document.getElementById("dateInput").value || todayIso();
+        const today = todayIso();
+
+        if(selectedDate !== today){
+          if(card) card.classList.add("hidden");
+          box.textContent = "";
+          return;
+        }
+
+        if(card) card.classList.remove("hidden");
+
+        const nowSeconds = typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60;
+        const nowClock = typeof ukNowLong === "function" ? ukNowLong() : now24h();
+
+        box.innerHTML = `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>Checking passenger, freight and ECS schedule...`;
+
+        const [{ data: scheduleData, error: scheduleError }, { data: movementData, error: movementError }] = await Promise.all([
+          supabaseClient
+            .from("schedule_locations")
+            .select(`
+              pass_time,
+              departure,
+              arrival,
+              platform,
+              line,
+              path,
+              signalling_id,
+              schedule_services (
+                signalling_id,
+                origin_tiploc,
+                origin_name,
+                destination_tiploc,
+                destination_name,
+                atoc_code,
+                schedule_start_date,
+                schedule_end_date,
+                days_runs,
+                stp_indicator
+              )
+            `)
+            .eq("tiploc", "ACBG")
+            .limit(5000),
+
+          supabaseClient
+            .from("station_movements")
+            .select("running_date,actual_time,planned_time,train_id,source")
+            .eq("station_crs", "ACB")
+            .eq("running_date", today)
+            .eq("source", "Network Rail TRUST")
+            .limit(1000)
+        ]);
+
+        if(scheduleError){
+          console.error("Next expected service schedule error:", scheduleError);
+          box.textContent = "Booked schedule unavailable";
+          return;
+        }
+
+        if(movementError){
+          console.warn("Next expected service live movement warning:", movementError);
+        }
+
+        const capturedToday = (movementData || []).map(row => ({
+          trainId: row.train_id,
+          time: row.actual_time || row.planned_time
+        }));
+
+        const overdueWindowSeconds = 45 * 60;
+
+        const upcoming = (scheduleData || [])
+          .map(row => {
+            const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
+            const bookedTime = row.pass_time || row.departure || row.arrival;
+            const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
+            const bookedSeconds = bookedMinutes === null ? null : bookedMinutes * 60;
+            const headcode = row.signalling_id || service?.signalling_id || "Unknown";
+            const originName = displayLocationName(service?.origin_name);
+            const destinationName = displayLocationName(service?.destination_name);
+            const type = scheduleTypeFromHeadcode(headcode);
+
+            return {
+              headcode,
+              type,
+              bookedTime,
+              bookedMinutes,
+              bookedSeconds,
+              platform: row.platform || "—",
+              origin: originName,
+              destination: destinationName,
+              toc: service?.atoc_code || "",
+              service
+            };
+          })
+          .filter(item => item.service)
+          .filter(item => item.bookedSeconds !== null)
+          .filter(item => activeScheduleOnDate(item.service, selectedDate))
+          .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
+          .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
+          // If it has already been captured by the live TRUST feed, move on to the next one.
+          .filter(item => !isCapturedAlready(item, capturedToday))
+          // Keep slightly overdue booked services visible for 45 mins in case they are late.
+          .filter(item => item.bookedSeconds >= nowSeconds - overdueWindowSeconds)
+          .sort((a,b) => a.bookedSeconds - b.bookedSeconds);
+
+        const nextPassenger = upcoming.find(item => item.type === "passenger");
+        const nextFreight = upcoming.find(item => item.type === "freight");
+        const nextEcs = upcoming.find(item => item.type === "ecs");
+
+        function formatNext(label, item){
+          if(!item) {
+            return `<span class="next-service-line"><strong>${label}:</strong> none found today</span>`;
+          }
+
+          const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
+          const overdue = item.bookedSeconds < nowSeconds;
+          const status = overdue
+            ? `<span class="next-service-status overdue">overdue / not yet captured</span>`
+            : `<span class="next-service-status">due</span>`;
+
+          return `<span class="next-service-line"><strong>${label}:</strong> ${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)} ${status}</span>`;
+        }
+
+        box.innerHTML =
+          `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>` +
+          formatNext("Passenger", nextPassenger) +
+          formatNext("Freight", nextFreight) +
+          formatNext("ECS/Other", nextEcs) +
+          `<span class="next-service-warning">Uses booked schedule plus captured TRUST passes. It is not a live delay predictor.</span>`;
+      } catch(err) {
+        console.error("Next expected service box failed:", err);
+        box.textContent = "Booked schedule unavailable";
+      }
+    }
+
+    function updateNextServiceClockOnly(){
+      const clock = document.querySelector(".next-service-clock");
+      if(clock && typeof ukNowLong === "function"){
+        clock.textContent = `UK time: ${ukNowLong()}`;
+      }
+    }
+
+
     async function loadMovements(){
       const {data,error} = await supabaseClient
         .from("station_movements")
@@ -1067,7 +1276,7 @@
       document.getElementById("testCount").textContent = testRows;
 
       document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("pageRefreshed").textContent = `Page refreshed: ${lastLoadedAt || "--:--"}`;
+      document.getElementById("pageRefreshed").innerHTML = `<strong>Page refreshed:</strong> ${escapeHtml(lastLoadedAt || "--:--")}`;
 
       const newestReal = daily.filter(item=>item.source==="Network Rail TRUST").slice().sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
       const newestVisible = visible.slice().sort((a,b)=>String(b.time).localeCompare(String(a.time)))[0];
@@ -1211,7 +1420,8 @@
     loadMovements();
     loadNextScheduledService();
     setInterval(loadMovements,60000);
-    setInterval(loadNextScheduledService,60000);
+    setInterval(loadNextScheduledService,15000);
+    setInterval(updateNextServiceClockOnly,1000);
   </script>
 </body>
 </html>
