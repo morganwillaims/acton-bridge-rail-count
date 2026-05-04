@@ -1045,6 +1045,32 @@
     }
   </style>
 
+
+  <style id="loco-allocation-column-style">
+    .loco-badge {
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      background:#fef3c7;
+      color:#92400e;
+      font-weight:900;
+      font-size:.85rem;
+      white-space:nowrap;
+    }
+
+    .loco-empty {
+      color:#64748b;
+      font-weight:700;
+    }
+
+    @media(max-width:800px){
+      th.loco-col,
+      td.loco-col {
+        min-width:82px;
+      }
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -1172,6 +1198,7 @@
                 <th>Time</th>
                 <th>Type</th>
                 <th>Train ID</th>
+              <th class="loco-col">Loco</th>
                 <th>Platform</th>
                 <th>Origin</th>
                 <th>Destination</th>
@@ -2756,6 +2783,62 @@
 
 
 
+
+    let locoAllocationsByDate = {};
+
+    async function loadLocoAllocations(selectedDate){
+      try {
+        const { data, error } = await supabaseClient
+          .from("loco_allocations")
+          .select("running_date,train_id,loco_number,source_note")
+          .eq("running_date", selectedDate);
+
+        if(error){
+          console.warn("Loco allocations unavailable:", error);
+          locoAllocationsByDate[selectedDate] = {};
+          return {};
+        }
+
+        const map = {};
+        for(const row of data || []){
+          const key = String(row.train_id || "").trim().toUpperCase();
+          if(!key) continue;
+          map[key] = {
+            loco_number: row.loco_number,
+            source_note: row.source_note || ""
+          };
+        }
+
+        locoAllocationsByDate[selectedDate] = map;
+        return map;
+      } catch(err) {
+        console.warn("Loco allocation lookup failed:", err);
+        locoAllocationsByDate[selectedDate] = {};
+        return {};
+      }
+    }
+
+    function getLocoForMovement(item){
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
+      const map = locoAllocationsByDate[selectedDate] || {};
+      const key = String(item?.trainId || item?.train_id || "").trim().toUpperCase();
+      return map[key] || null;
+    }
+
+    function formatLocoCell(item){
+      const type = item?.trainType || normaliseTrainType(item?.train_type || "", item?.trainId || item?.train_id || "");
+      const showForType = type === "freight" || type === "light_engine";
+
+      if(!showForType) return `<span class="loco-empty">—</span>`;
+
+      const loco = getLocoForMovement(item);
+      if(!loco || !loco.loco_number) return `<span class="loco-empty">—</span>`;
+
+      const title = loco.source_note ? ` title="${escapeHtml(loco.source_note)}"` : "";
+      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span>`;
+    }
+
+
     async function loadMovements(){
       const {data,error} = await supabaseClient
         .from("station_movements")
@@ -2774,6 +2857,7 @@
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
       if(!userPickedArchiveDate) document.getElementById("dateInput").value = todayIso();
+      await loadLocoAllocations(selectedDate);
       renderAll();
       loadNextScheduledService();
     loadTdApproachStatus();
