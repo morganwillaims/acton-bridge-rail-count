@@ -10,11 +10,15 @@ SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 ACB_TIPLOC = "ACBG"
-LOOP_SECONDS = int(os.environ.get("ROUTE_BACKFILL_LOOP_SECONDS", "3300"))  # 55 minutes
-SLEEP_SECONDS = int(os.environ.get("ROUTE_BACKFILL_SLEEP_SECONDS", "60"))  # 1 minute safety gap
+LOOP_SECONDS = int(os.environ.get("ROUTE_BACKFILL_LOOP_SECONDS", "21300"))  # 5h55m
+SLEEP_SECONDS = int(os.environ.get("ROUTE_BACKFILL_SLEEP_SECONDS", "60"))
+
 
 STATIC_TIPLOC_NAMES = {
+    "ACBG": "Acton Bridge",
     "CREWE": "Crewe",
+    "CREWECS": "Crewe C.S.",
+    "CREWMD": "Crewe C.S.",
     "LVRPLSH": "Liverpool South Parkway",
     "LVRPLSL": "Liverpool Lime Street",
     "ALERTN": "Allerton",
@@ -35,17 +39,17 @@ STATIC_TIPLOC_NAMES = {
     "LVRPGBF": "Liverpool Biomass Terminal",
     "DRAXGBR": "Drax Power Station",
     "DIRFDR2": "Daventry DRS",
-    "DIRFTFL": "Daventry International Rail Freight Terminal",
+    "DIRFTFL": "Daventry Int Recep Term",
     "COATDRS": "Coatbridge Down Refuge Siding",
     "STOKMAR": "Stoke Marcroft Engineering",
-    "CLITGBR": "Clitheroe Castle Cement GB Railfreight",
+    "CLITGBR": "Clitheroe Castle Cement GBRf",
     "BREDFHH": "Bredbury R.T.S. Freightliner Heavy Haul",
-    "BRNDFHH": "Brindle Heath R.T.S. Freightliner Heavy Haul",
-    "BTNUNMD": "Barton Under Needwood Carriage Maintenance Depot",
+    "BRNDFHH": "Brindle Heath R.T.S. Flhh",
+    "BTNUNMD": "Barton Under Needwood Rsmd",
     "238302": "Arpley Sidings",
     "320011": "Avonmouth Hanson Siding GBRf",
     "229115": "Folly Lane ICI Sidings",
-    "ACBG": "Acton Bridge",
+    "MNTSDGS": "Mountsorrel Sdgs",
 }
 
 
@@ -66,7 +70,7 @@ def is_bad_name(value):
     text = str(value or "").strip()
     return (
         not text
-        or text.lower() in {"unknown", "null", "undefined"}
+        or text.lower() in {"unknown", "null", "undefined", "route pending"}
         or text.upper() == "NAME GOES HERE"
         or text.isdigit()
     )
@@ -104,7 +108,7 @@ def active_on_date(service, running_date):
     days = service.get("days_runs")
     if days and len(days) == 7:
         d = datetime.strptime(running_date, "%Y-%m-%d").date()
-        return days[d.weekday()] == "1"  # Monday first
+        return days[d.weekday()] == "1"
 
     return True
 
@@ -143,42 +147,33 @@ def upsert_static_tiplocs():
 
 
 def fetch_recent_movements():
-    # Pull recent rows. We check them all because some rows may have a TIPLOC/numeric value that can be improved.
     url = (
         rest("station_movements")
         + "?source=eq.Network%20Rail%20TRUST"
         + "&select=id,running_date,actual_time,train_id,origin,destination,toc,planned_time,platform,created_at"
         + "&order=created_at.desc"
-        + "&limit=300"
+        + "&limit=500"
     )
     response = requests.get(url, headers=headers(), timeout=60)
     response.raise_for_status()
-    rows = response.json()
+    return response.json()
 
-    needs_check = []
-    for row in rows:
-        origin = str(row.get("origin") or "").strip()
-        destination = str(row.get("destination") or "").strip()
-        platform = str(row.get("platform") or "").strip()
 
-        if is_bad_name(origin) or is_bad_name(destination):
-            needs_check.append(row)
-            continue
+def needs_backfill(row):
+    origin = str(row.get("origin") or "").strip()
+    destination = str(row.get("destination") or "").strip()
+    platform = str(row.get("platform") or "").strip()
 
-        # Improve raw TIPLOC / STANOX / NLC-looking fields when possible.
-        if origin in STATIC_TIPLOC_NAMES or destination in STATIC_TIPLOC_NAMES:
-            needs_check.append(row)
-            continue
-
-        if origin.isdigit() or destination.isdigit():
-            needs_check.append(row)
-            continue
-
-        # Platform can be filled even if route is already known.
-        if not platform or platform in {"—", "-"}:
-            needs_check.append(row)
-
-    return needs_check
+    return (
+        is_bad_name(origin)
+        or is_bad_name(destination)
+        or origin in STATIC_TIPLOC_NAMES
+        or destination in STATIC_TIPLOC_NAMES
+        or origin.isdigit()
+        or destination.isdigit()
+        or not platform
+        or platform in {"—", "-"}
+    )
 
 
 def fetch_schedules_for_headcode(headcode):
@@ -226,7 +221,6 @@ def best_match(movement, schedules):
             best_score = score
             best = (service, loc, score)
 
-    # 240 mins is generous for early/late/BST edge cases.
     if best and best[2] <= 240:
         return best
 
@@ -234,7 +228,7 @@ def best_match(movement, schedules):
 
 
 def patch_movement(movement_id, update):
-    clean_update = {key: value for key, value in update.items() if value not in (None, "", "Unknown")}
+    clean_update = {key: value for key, value in update.items() if value not in (None, "")}
     if not clean_update:
         return False
 
@@ -252,7 +246,7 @@ def patch_movement(movement_id, update):
 def run_once():
     upsert_static_tiplocs()
     name_map = get_tiploc_name_map()
-    movements = fetch_recent_movements()
+    movements = [row for row in fetch_recent_movements() if needs_backfill(row)]
 
     print(f"Route backfill check: {len(movements)} recent rows need checking", flush=True)
 
@@ -292,8 +286,7 @@ def run_once():
             "platform": movement.get("platform") or loc.get("platform"),
         }
 
-        changed = patch_movement(movement["id"], update)
-        if changed:
+        if patch_movement(movement["id"], update):
             updated += 1
             print(
                 f"Updated {movement.get('actual_time')} {headcode}: {origin} -> {destination} platform={update.get('platform') or '—'} score={score}m",
@@ -309,7 +302,7 @@ def main():
     pass_number = 0
 
     print(
-        f"Starting route backfill loop for {LOOP_SECONDS}s with {SLEEP_SECONDS}s safety gap",
+        f"Starting route backfill loop for {LOOP_SECONDS}s with {SLEEP_SECONDS}s gap",
         flush=True,
     )
 
