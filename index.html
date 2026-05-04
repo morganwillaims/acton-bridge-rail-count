@@ -1440,6 +1440,17 @@
     .stp-can { background:#fecaca; color:#7f1d1d; }
   </style>
 
+
+  <style id="active-freight-only-note">
+    .next-service-warning {
+      display:block;
+      margin-top:8px;
+      color:#64748b;
+      font-weight:800;
+      line-height:1.3;
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -2511,21 +2522,24 @@
 
         const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
         const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
-        const allScheduleWithFreight = dedupeByHeadcodeTime(bookedClean.concat(vstpClean).concat(tdRows).concat(capturedRows));
+
+        // Freight must NOT use booked paths. Many freight schedules are Q-path/as-required and can ghost.
+        // Use only movements that are actually active/seen:
+        // - TD live mapped berth
+        // - captured TRUST at/near Acton Bridge
+        // VSTP is still only a schedule, so it is excluded from the freight "next" card unless captured by TRUST/TD.
+        const activeFreightOnly = dedupeByHeadcodeTime(tdRows.concat(capturedRows));
 
         const nextPassenger = chooseNext(allScheduleForPassenger, "passenger", { allowBookedOnly:true });
 
-        // Freight/light engine now behave like passenger:
-        // show the next booked/confirmed working for the selected date, but prefer TD/VSTP/TRUST when available.
-        // Keep overdue booked freight visible for 30 minutes so it can show "overdue / possibly late".
-        const nextFreight = chooseNext(allScheduleWithFreight, "freight", {
-          allowBookedOnly:true,
-          overdueGraceSeconds:30 * 60
+        const nextFreight = chooseNext(activeFreightOnly, "freight", {
+          allowBookedOnly:false,
+          overdueGraceSeconds:2 * 60
         });
 
-        const nextLightEngine = chooseNext(allScheduleWithFreight, "light_engine", {
-          allowBookedOnly:true,
-          overdueGraceSeconds:30 * 60
+        const nextLightEngine = chooseNext(activeFreightOnly, "light_engine", {
+          allowBookedOnly:false,
+          overdueGraceSeconds:2 * 60
         });
 
         const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
@@ -2594,10 +2608,10 @@
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No freight working listed for the rest of this date") +
-          formatNext("Light Engine", nextLightEngine, "light_engine", "No light-engine working listed for the rest of this date") +
+          formatNext("Freight", nextFreight, "freight", "No activated freight movement currently visible near Acton Bridge") +
+          formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Freight and light-engine cards now use booked schedule plus VSTP / TD / captured TRUST. If booked time has passed but it has not been captured, the card shows it as overdue.</span>` +
+          `<span class="next-service-warning">Freight and light-engine cards use activated/live evidence only: TD mapped berths or captured TRUST. Booked freight paths are hidden to avoid ghost workings.</span>` +
           `</div></div>`;
 
       } catch(err) {
