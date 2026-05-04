@@ -588,7 +588,152 @@
       td { grid-template-columns:96px minmax(0,1fr); }
       .quick-filter-btn { flex-basis:100%; }
     }
-  </style>
+  
+    #nextServiceBox{
+      display:block;
+      margin-top:8px;
+    }
+
+    .next-service-widget{
+      display:grid;
+      grid-template-columns:140px 1fr;
+      gap:12px;
+      align-items:start;
+      margin-top:8px;
+    }
+
+    .next-service-datebox{
+      background:#f3f6f9;
+      border:1px solid #d8e1e8;
+      border-left:4px solid var(--teal-dark);
+      border-radius:10px;
+      padding:10px 12px;
+      box-shadow:0 1px 4px rgba(15,23,42,.08);
+    }
+
+    .next-service-date-label{
+      display:block;
+      font-size:.72rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      color:#6b7280;
+      margin-bottom:4px;
+    }
+
+    .next-service-date-value{
+      display:block;
+      font-size:1.05rem;
+      font-weight:800;
+      color:var(--text);
+      margin-bottom:8px;
+    }
+
+    .next-service-body{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      min-width:0;
+    }
+
+    .next-service-clock{
+      display:block;
+      font-size:.9rem;
+      font-weight:700;
+      color:#475569;
+    }
+
+    .next-service-line{
+      display:block;
+      padding:8px 10px;
+      border-radius:10px;
+      background:#f8fafc;
+      border-left:4px solid #cbd5e1;
+      line-height:1.35;
+    }
+
+    .next-service-line.passenger{
+      background:#eef6ff;
+      border-left-color:#3b82f6;
+    }
+
+    .next-service-line.freight{
+      background:#e6f0ff;
+      border-left-color:#2563eb;
+    }
+
+    .next-service-line.light_engine{
+      background:#ecfdf3;
+      border-left-color:#16a34a;
+    }
+
+    .next-service-line.ecs{
+      background:#fff3c7;
+      border-left-color:#d97706;
+    }
+
+    .next-service-label{
+      display:block;
+      font-size:.78rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      color:#6b7280;
+      margin-bottom:3px;
+    }
+
+    .next-service-label.passenger{ color:#1d4ed8; }
+    .next-service-label.freight{ color:#1e40af; }
+    .next-service-label.light_engine{ color:#166534; }
+    .next-service-label.ecs{ color:#92400e; }
+
+    .next-service-main{
+      display:block;
+      font-weight:700;
+      color:var(--text);
+      word-break:break-word;
+    }
+
+    .next-service-status{
+      display:inline-block;
+      margin-left:4px;
+      font-size:.86rem;
+      font-weight:700;
+      color:#475569;
+    }
+
+    .next-service-status.overdue{
+      color:#b45309;
+    }
+
+    .next-service-warning{
+      display:block;
+      margin-top:2px;
+      font-size:.84rem;
+      color:#64748b;
+      line-height:1.35;
+    }
+
+    @media(max-width:700px){
+      .next-service-widget{
+        grid-template-columns:1fr;
+      }
+
+      .next-service-datebox{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px 12px;
+        align-items:baseline;
+      }
+
+      .next-service-date-label,
+      .next-service-date-value,
+      .next-service-clock{
+        margin:0;
+      }
+    }
+
+</style>
 </head>
 <body>
   <div class="page">
@@ -1087,12 +1232,15 @@
         }
 
         box.innerHTML =
-          `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>` +
+          `<div class="next-service-widget">` +
+          `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
+          `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger") +
           formatNext("Freight", nextFreight, "freight") +
           formatNext("Light Engine", nextLightEngine, "light_engine") +
           formatNext("ECS/Other", nextEcs, "ecs") +
-          `<span class="next-service-warning">Booked schedule + VSTP + captured TRUST passes. TD approach appears separately when mapped.</span>`;
+          `<span class="next-service-warning">Booked schedule + VSTP + captured TRUST passes. TD approach appears separately when mapped.</span>` +
+          `</div></div>`;
       } catch(err) {
         console.error("Next expected service box failed:", err);
         box.textContent = "Booked schedule unavailable";
@@ -1162,7 +1310,7 @@
         const nowSeconds = typeof ukSecondsNow === "function" ? ukSecondsNow() : localMinutesNow() * 60;
         const nowClock = typeof ukNowLong === "function" ? ukNowLong() : now24h();
 
-        box.innerHTML = `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>Checking booked services...`;
+        box.innerHTML = `<div class="next-service-widget"><div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div><div class="next-service-body"><span class="next-service-line"><span class="next-service-label">Status</span><span class="next-service-main">Checking booked services...</span></span></div></div>`;
 
         // 1) Main booked SCHEDULE feed. This is the core source and should work even if VSTP is not ready.
         const bookedResult = await supabaseClient
@@ -1348,12 +1496,15 @@
         const vstpNote = vstpRowsRaw.length ? "Booked schedule + VSTP + captured TRUST passes." : "Booked schedule + captured TRUST passes. VSTP not active/readable yet.";
 
         box.innerHTML =
-          `<span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span>` +
+          `<div class="next-service-widget">` +
+          `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
+          `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger") +
           formatNext("Freight", nextFreight, "freight") +
           formatNext("Light Engine", nextLightEngine, "light_engine") +
           formatNext("ECS/Other", nextEcs, "ecs") +
-          `<span class="next-service-warning">${escapeHtml(vstpNote)} TD approach appears separately when mapped.</span>`;
+          `<span class="next-service-warning">${escapeHtml(vstpNote)} TD approach appears separately when mapped.</span>` +
+          `</div></div>`;
       } catch(err) {
         console.error("Next expected service box failed:", err);
         box.textContent = "Booked schedule unavailable";
