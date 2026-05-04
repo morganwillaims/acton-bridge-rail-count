@@ -1,0 +1,46 @@
+name: Acton Bridge RTT Loco Allocation Collector
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+
+concurrency:
+  group: acton-bridge-rtt-loco-allocations
+  cancel-in-progress: false
+
+jobs:
+  rtt-loco-allocations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run RTT loco allocation collector
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          # Legacy RTT Pull API auth:
+          RTT_AUTH_MODE: basic
+          RTT_USERNAME: ${{ secrets.RTT_USERNAME }}
+          RTT_PASSWORD: ${{ secrets.RTT_PASSWORD }}
+
+          # If you use the new API bearer token route later, change the script/base as needed:
+          # RTT_AUTH_MODE: bearer
+          # RTT_BEARER_TOKEN: ${{ secrets.RTT_BEARER_TOKEN }}
+
+          RTT_API_BASE: https://api.rtt.io/api/v1
+          RTT_STATION: ACBG
+        run: python rtt_loco_allocation_collector.py
