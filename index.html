@@ -1235,6 +1235,41 @@
     }
   </style>
 
+
+  <style id="final-table-header-alignment-fix">
+    .table-wrap {
+      overflow-x: auto;
+      box-sizing: border-box;
+    }
+
+    table.movements-table {
+      width: 100%;
+      min-width: 1500px;
+      table-layout: fixed;
+      border-collapse: collapse;
+      box-sizing: border-box;
+    }
+
+    table.movements-table th,
+    table.movements-table td {
+      box-sizing: border-box;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    table.movements-table th:nth-child(1), table.movements-table td:nth-child(1) { width: 82px; }
+    table.movements-table th:nth-child(2), table.movements-table td:nth-child(2) { width: 140px; }
+    table.movements-table th:nth-child(3), table.movements-table td:nth-child(3) { width: 110px; }
+    table.movements-table th:nth-child(4), table.movements-table td:nth-child(4) { width: 110px; text-align:center; }
+    table.movements-table th:nth-child(5), table.movements-table td:nth-child(5) { width: 95px; text-align:center; }
+    table.movements-table th:nth-child(6), table.movements-table td:nth-child(6) { width: 330px; }
+    table.movements-table th:nth-child(7), table.movements-table td:nth-child(7) { width: 330px; }
+    table.movements-table th:nth-child(8), table.movements-table td:nth-child(8) { width: 72px; text-align:center; }
+    table.movements-table th:nth-child(9), table.movements-table td:nth-child(9) { width: 95px; text-align:center; }
+    table.movements-table th:nth-child(10), table.movements-table td:nth-child(10) { width: 105px; text-align:center; }
+    table.movements-table th:nth-child(11), table.movements-table td:nth-child(11) { width: 310px; }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -1362,8 +1397,8 @@
                 <th>Time</th>
                 <th>Type</th>
                 <th>Train ID</th>
-                <th class="loco-col">Loco</th>
-                <th>Platform</th>
+              <th class="loco-col">Loco</th>
+<th>Platform</th>
                 <th>Origin</th>
                 <th>Destination</th>
                 <th>TOC</th>
@@ -3126,9 +3161,15 @@
       }
 
       movements = dedupeMovements((data || []).map(rowToMovement));
+      const loadedDates = [...new Set(movements.map(item => item.date).filter(Boolean))].sort();
+      const preferredDate = loadedDates.includes(todayIso()) ? todayIso() : (loadedDates[loadedDates.length - 1] || todayIso());
+      if(!userPickedArchiveDate || !document.getElementById("dateInput").value){
+        document.getElementById("dateInput").value = preferredDate;
+      }
+      const typeFilterEl = document.getElementById("typeFilter");
+      if(typeFilterEl && !typeFilterEl.value) typeFilterEl.value = "all";
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
-      if(!userPickedArchiveDate) document.getElementById("dateInput").value = todayIso();
       const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       await loadLocoAllocations(selectedDate);
       renderAll();
@@ -3169,7 +3210,13 @@
 
     function getFilteredMovements(){
       movements = Array.isArray(movements) ? movements : [];
-      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
+      const dateInput = document.getElementById("dateInput");
+      let selectedDate = dateInput?.value || "";
+      if(!selectedDate){
+        const loadedDates = [...new Set(movements.map(item => item.date).filter(Boolean))].sort();
+        selectedDate = loadedDates.includes(todayIso()) ? todayIso() : (loadedDates[loadedDates.length - 1] || todayIso());
+        if(dateInput) dateInput.value = selectedDate;
+      }
       const type = document.getElementById("typeFilter")?.value || "all";
       return movements
         .filter(item=>item.date===selectedDate)
@@ -3260,6 +3307,7 @@
           <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
           <td data-label="Type"><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
           <td data-label="Train ID"><strong>${escapeHtml(item.trainId)}</strong></td>
+          <td data-label="Loco" class="loco-col">${formatLocoCell(item)}</td>
           <td data-label="Platform" class="time">${escapeHtml(item.platform || "—")}</td>
           <td data-label="Origin">${escapeHtml(item.origin || "Unknown")}</td>
           <td data-label="Destination">${escapeHtml(item.destination || "Unknown")}</td>
