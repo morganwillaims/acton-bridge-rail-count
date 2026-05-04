@@ -1147,7 +1147,7 @@
         <span id="nextServiceBox">Checking passenger and freight schedule...</span>
       </div>
       <div class="mini-card" id="tdApproachCard">
-        <strong>TD live approach / exit / exit</strong>
+        <strong>TD LIVE APPROACH / EXIT</strong>
         <span id="tdApproachBox">Waiting for TD berth map...</span>
       </div>
     </section>
@@ -2407,6 +2407,7 @@
 
 
 
+
     async function loadTdApproachStatus(){
       const box = document.getElementById("tdApproachBox");
       if(!box) return;
@@ -2416,6 +2417,12 @@
         const then = new Date(value).getTime();
         if(Number.isNaN(then)) return null;
         return Math.max(0, Math.round((Date.now() - then) / 60000));
+      }
+
+      function pickNewest(current, candidate){
+        if(!candidate) return current;
+        if(!current) return candidate;
+        return String(candidate.updated_at || "") > String(current.updated_at || "") ? candidate : current;
       }
 
       function renderTdStatus(hartford, weaverExit, note, confidence){
@@ -2430,10 +2437,7 @@
           ? `${escapeHtml(weaverExit.headcode)}${weaverExit.berth ? ` · ${escapeHtml(weaverExit.berth)}` : ""}${weaverAgo !== null ? ` · ${weaverAgo} min ago` : ""}`
           : "No recent train in mapped exit berth";
 
-        const latestTs = hartford?.updated_at || weaverExit?.updated_at;
-        const updated = latestTs
-          ? new Date(latestTs).toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"})
-          : new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+        const checked = new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
 
         box.innerHTML = `
           <span class="td-approach-grid">
@@ -2445,36 +2449,12 @@
               <span class="td-approach-label">Weaver / Crewe exit</span>
               <span class="td-approach-headcode">${weaverText}</span>
             </span>
-            <span class="td-approach-note">Checked ${escapeHtml(updated)} · ${escapeHtml(confidence || "mapped berths")} · ${escapeHtml(note || "Shows current mapped berth first, then recent TD sightings.")}</span>
+            <span class="td-approach-note">Checked ${escapeHtml(checked)} · ${escapeHtml(confidence || "mapped berths")} · ${escapeHtml(note || "Shows current mapped berths and recent sightings.")}</span>
           </span>
         `;
       }
 
-      function pickNewest(current, candidate){
-        if(!candidate) return current;
-        if(!current) return candidate;
-        return String(candidate.updated_at || "") > String(current.updated_at || "") ? candidate : current;
-      }
-
       try {
-        // 1) Try summary table first, if the collector has populated it.
-        const { data, error } = await supabaseClient
-          .from("acton_live_status")
-          .select("*")
-          .eq("id", "ACB")
-          .maybeSingle();
-
-        if(!error && data && (data.hartford_headcode || data.weaver_headcode)){
-          renderTdStatus(
-            data.hartford_headcode ? { headcode:data.hartford_headcode, berth:data.hartford_berth, updated_at:data.updated_at } : null,
-            data.weaver_headcode ? { headcode:data.weaver_headcode, berth:data.weaver_berth, updated_at:data.updated_at } : null,
-            data.note || "Status table",
-            data.confidence || "mapped"
-          );
-          return;
-        }
-
-        // 2) Read mapped berth definitions.
         const mapResult = await supabaseClient
           .from("td_berth_map")
           .select("area_id, berth, side, label")
@@ -2488,18 +2468,17 @@
                 <span class="td-approach-label">Status</span>
                 <span class="td-approach-headcode">TD berth map not readable by website</span>
               </span>
-              <span class="td-approach-note">Add a public read policy for td_berth_map.</span>
+              <span class="td-approach-note">Run the TD read-policy SQL for td_berth_map.</span>
             </span>
           `;
           return;
         }
 
         const mapRows = mapResult.data || [];
-
         let hartford = null;
         let weaverExit = null;
 
-        // 3) Current berth fallback.
+        // 1) Current mapped berths.
         const currentResult = await supabaseClient
           .from("td_current_berths")
           .select("area_id, berth, description, updated_at")
@@ -2522,13 +2501,14 @@
             if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
           }
         } else {
-          console.warn("TD current berth read failed:", currentResult.error);
+          console.warn("TD current berths read failed:", currentResult.error);
         }
 
-        // 4) Recent-event fallback.
-        // This fixes the problem where the berth is empty by the time the website checks.
-        // It shows the latest mapped berth sighting from the last 12 minutes.
-        const sinceIso = new Date(Date.now() - 12 * 60 * 1000).toISOString();
+        // 2) Recent mapped sightings from td_berth_events.
+        // Uses a time window so the card does not blank out immediately after a train steps out of COUT.
+        let eventReadOk = false;
+        const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
         const eventResult = await supabaseClient
           .from("td_berth_events")
           .select("area_id, berth, description, event_ts")
@@ -2536,9 +2516,10 @@
           .gte("event_ts", sinceIso)
           .not("description", "is", null)
           .order("event_ts", { ascending:false })
-          .limit(300);
+          .limit(500);
 
         if(!eventResult.error){
+          eventReadOk = true;
           for(const map of mapRows){
             const event = (eventResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
             if(!event) continue;
@@ -2554,14 +2535,18 @@
             if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
           }
         } else {
-          console.warn("TD event fallback read failed:", eventResult.error);
+          console.warn("TD recent event read failed:", eventResult.error);
         }
 
         renderTdStatus(
           hartford,
           weaverExit,
-          hartford || weaverExit ? "Live/recent from mapped TD berths" : "No mapped berth sighting in the last 12 minutes",
-          eventResult && !eventResult.error ? "direct + recent" : "direct current only"
+          hartford || weaverExit
+            ? "Current/recent mapped TD sighting"
+            : eventReadOk
+              ? "No mapped berth sighting in the last 15 minutes"
+              : "Recent TD events not readable; showing current berths only",
+          eventReadOk ? "direct + recent" : "direct"
         );
 
       } catch(err) {
@@ -2577,6 +2562,8 @@
         `;
       }
     }
+
+
 
 
 
@@ -2586,105 +2573,141 @@
       const box = document.getElementById("tdApproachBox");
       if(!box) return;
 
-      function renderTdStatus(hartford, weaver, note, confidence){
+      function minutesAgo(value){
+        if(!value) return null;
+        const then = new Date(value).getTime();
+        if(Number.isNaN(then)) return null;
+        return Math.max(0, Math.round((Date.now() - then) / 60000));
+      }
+
+      function pickNewest(current, candidate){
+        if(!candidate) return current;
+        if(!current) return candidate;
+        return String(candidate.updated_at || "") > String(current.updated_at || "") ? candidate : current;
+      }
+
+      function renderTdStatus(hartford, weaverExit, note, confidence){
+        const hartfordAgo = minutesAgo(hartford?.updated_at);
+        const weaverAgo = minutesAgo(weaverExit?.updated_at);
+
         const hartfordText = hartford?.headcode
-          ? `${escapeHtml(hartford.headcode)}${hartford.berth ? ` · ${escapeHtml(hartford.berth)}` : ""}`
-          : "No train in mapped berth";
+          ? `${escapeHtml(hartford.headcode)}${hartford.berth ? ` · ${escapeHtml(hartford.berth)}` : ""}${hartfordAgo !== null ? ` · ${hartfordAgo} min ago` : ""}`
+          : "No recent train in mapped approach berth";
 
-        const weaverText = weaver?.headcode
-          ? `${escapeHtml(weaver.headcode)}${weaver.berth ? ` · ${escapeHtml(weaver.berth)}` : ""}`
-          : "Not mapped yet";
+        const weaverText = weaverExit?.headcode
+          ? `${escapeHtml(weaverExit.headcode)}${weaverExit.berth ? ` · ${escapeHtml(weaverExit.berth)}` : ""}${weaverAgo !== null ? ` · ${weaverAgo} min ago` : ""}`
+          : "No recent train in mapped exit berth";
 
-        const updated = hartford?.updated_at || weaver?.updated_at
-          ? new Date(hartford?.updated_at || weaver?.updated_at).toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"})
-          : new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+        const checked = new Date().toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"});
 
         box.innerHTML = `
           <span class="td-approach-grid">
             <span class="td-approach-line hartford">
-              <span class="td-approach-label">Hartford side</span>
+              <span class="td-approach-label">Hartford approach</span>
               <span class="td-approach-headcode">${hartfordText}</span>
             </span>
             <span class="td-approach-line weaver">
-              <span class="td-approach-label">Weaver side</span>
+              <span class="td-approach-label">Weaver / Crewe exit</span>
               <span class="td-approach-headcode">${weaverText}</span>
             </span>
-            <span class="td-approach-note">Checked ${escapeHtml(updated)} · ${escapeHtml(confidence || "mapped berths")} · ${escapeHtml(note || "TD reads mapped berths when occupied.")}</span>
+            <span class="td-approach-note">Checked ${escapeHtml(checked)} · ${escapeHtml(confidence || "mapped berths")} · ${escapeHtml(note || "Shows current mapped berths and recent sightings.")}</span>
           </span>
         `;
       }
 
       try {
-        // First try the simple status table.
-        const { data, error } = await supabaseClient
-          .from("acton_live_status")
-          .select("*")
-          .eq("id", "ACB")
-          .maybeSingle();
-
-        if(!error && data && (data.hartford_headcode || data.weaver_headcode)){
-          renderTdStatus(
-            data.hartford_headcode ? { headcode:data.hartford_headcode, berth:data.hartford_berth, updated_at:data.updated_at } : null,
-            data.weaver_headcode ? { headcode:data.weaver_headcode, berth:data.weaver_berth, updated_at:data.updated_at } : null,
-            data.note || "Status table",
-            data.confidence || "mapped"
-          );
-          return;
-        }
-
-        // Fallback: read the live TD berth table directly.
-        // This means the website can still display an approach train even if acton_live_status has not been refreshed.
         const mapResult = await supabaseClient
           .from("td_berth_map")
           .select("area_id, berth, side, label")
           .eq("area_id", "CE");
 
-        const currentResult = await supabaseClient
-          .from("td_current_berths")
-          .select("area_id, berth, description, updated_at")
-          .eq("area_id", "CE")
-          .not("description", "is", null);
-
-        if(mapResult.error || currentResult.error){
-          console.warn("TD fallback read failed:", mapResult.error || currentResult.error);
+        if(mapResult.error){
+          console.warn("TD berth map read failed:", mapResult.error);
           box.innerHTML = `
             <span class="td-approach-grid">
               <span class="td-approach-line">
                 <span class="td-approach-label">Status</span>
-                <span class="td-approach-headcode">TD tables not readable by website</span>
+                <span class="td-approach-headcode">TD berth map not readable by website</span>
               </span>
-              <span class="td-approach-note">Add public read policies for acton_live_status, td_berth_map and td_current_berths.</span>
+              <span class="td-approach-note">Run the TD read-policy SQL for td_berth_map.</span>
             </span>
           `;
           return;
         }
 
         const mapRows = mapResult.data || [];
-        const currentRows = currentResult.data || [];
-
         let hartford = null;
-        let weaver = null;
+        let weaverExit = null;
 
-        for(const map of mapRows){
-          const current = currentRows.find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
-          if(!current) continue;
+        // 1) Current mapped berths.
+        const currentResult = await supabaseClient
+          .from("td_current_berths")
+          .select("area_id, berth, description, updated_at")
+          .eq("area_id", "CE")
+          .not("description", "is", null);
 
-          const candidate = {
-            headcode: current.description,
-            berth: current.berth,
-            updated_at: current.updated_at,
-            label: map.label
-          };
+        if(!currentResult.error){
+          for(const map of mapRows){
+            const current = (currentResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
+            if(!current) continue;
 
-          if(map.side === "hartford" && (!hartford || String(current.updated_at) > String(hartford.updated_at))) hartford = candidate;
-          if(map.side === "weaver" && (!weaver || String(current.updated_at) > String(weaver.updated_at))) weaver = candidate;
+            const candidate = {
+              headcode: current.description,
+              berth: current.berth,
+              updated_at: current.updated_at,
+              label: map.label
+            };
+
+            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
+            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+          }
+        } else {
+          console.warn("TD current berths read failed:", currentResult.error);
+        }
+
+        // 2) Recent mapped sightings from td_berth_events.
+        // Uses a time window so the card does not blank out immediately after a train steps out of COUT.
+        let eventReadOk = false;
+        const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+        const eventResult = await supabaseClient
+          .from("td_berth_events")
+          .select("area_id, berth, description, event_ts")
+          .eq("area_id", "CE")
+          .gte("event_ts", sinceIso)
+          .not("description", "is", null)
+          .order("event_ts", { ascending:false })
+          .limit(500);
+
+        if(!eventResult.error){
+          eventReadOk = true;
+          for(const map of mapRows){
+            const event = (eventResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
+            if(!event) continue;
+
+            const candidate = {
+              headcode: event.description,
+              berth: event.berth,
+              updated_at: event.event_ts,
+              label: map.label
+            };
+
+            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
+            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+          }
+        } else {
+          console.warn("TD recent event read failed:", eventResult.error);
         }
 
         renderTdStatus(
           hartford,
-          weaver,
-          hartford || weaver ? "Live from td_current_berths" : "No mapped berth is currently occupied",
-          "direct"
+          weaverExit,
+          hartford || weaverExit
+            ? "Current/recent mapped TD sighting"
+            : eventReadOk
+              ? "No mapped berth sighting in the last 15 minutes"
+              : "Recent TD events not readable; showing current berths only",
+          eventReadOk ? "direct + recent" : "direct"
         );
 
       } catch(err) {
@@ -2700,6 +2723,7 @@
         `;
       }
     }
+
 
 
     async function loadMovements(){
