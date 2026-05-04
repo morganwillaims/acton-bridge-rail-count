@@ -234,7 +234,7 @@
 
     .split-grid {
       display:grid;
-      grid-template-columns:minmax(0,2fr) minmax(320px,.65fr);
+      grid-template-columns:1fr;
       gap:12px;
       align-items:start;
     }
@@ -254,24 +254,24 @@
 
     .table-wrap { overflow-x:auto; }
 
-    table { width:100%; border-collapse:collapse; min-width:1260px; font-size:15px; }
+    table { width:100%; border-collapse:collapse; min-width:1320px; font-size:15px; }
 
     th {
       background:var(--teal-soft);
       color:#111827;
       text-align:left;
-      padding:7px 14px;
+      padding:8px 14px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
     }
 
     td {
       background:var(--row);
-      padding:5px 14px;
+      padding:7px 14px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
       font-style:italic;
-      line-height:1.22;
+      line-height:1.3;
     }
 
     tr:hover td { background:#dff0f4; }
@@ -326,6 +326,24 @@
     .confidence .ok { background:#dcfce7; color:#166534; }
     .confidence .pending { background:#fef3c7; color:#92400e; }
 
+
+    .split-grid aside.panel {
+      width:100%;
+    }
+
+    .side-list {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+      gap:10px;
+    }
+
+    .archive-item {
+      background:rgba(255,255,255,.55);
+      border:1px solid rgba(8,127,140,.18);
+      border-radius:6px;
+      padding:10px 12px;
+    }
+
     .side-list { padding:14px; }
     .archive-item {
       display:flex;
@@ -345,7 +363,7 @@
 
     /* Balanced compact desktop rows */
     .badge, .source-chip {
-      padding:3px 7px;
+      padding:4px 8px;
       font-size:12px;
     }
 
@@ -355,7 +373,7 @@
     }
 
     .confidence span {
-      padding:3px 6px;
+      padding:4px 7px;
       font-size:11px;
       white-space:nowrap;
     }
@@ -403,7 +421,7 @@
         border-radius:10px;
         overflow:hidden;
         box-shadow:0 3px 12px rgba(0,0,0,.18);
-        margin-bottom:12px;
+        margin-bottom:13px;
       }
 
       td {
