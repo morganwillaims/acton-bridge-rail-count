@@ -1117,7 +1117,7 @@
   </style>
 
 
-  <style id="loco-community-form-style">
+  <style id="community-loco-form-final-style">
     .loco-panel {
       background:#f1f7f8;
       box-shadow:var(--shadow);
@@ -1125,6 +1125,7 @@
       border-left:6px solid var(--teal);
       padding:16px 18px;
       margin:16px 0;
+      display:block;
     }
 
     .loco-panel summary {
@@ -1140,8 +1141,8 @@
     }
 
     .loco-panel summary::-webkit-details-marker { display:none; }
-    .loco-panel summary::after { content:"▼ Show"; color:var(--muted); font-size:.86rem; }
-    .loco-panel[open] summary::after { content:"▲ Hide"; }
+    .loco-panel summary::after { content:"▲ Hide"; color:var(--muted); font-size:.86rem; }
+    .loco-panel:not([open]) summary::after { content:"▼ Show"; }
 
     .loco-form-grid {
       display:grid;
@@ -1199,25 +1200,6 @@
       color:#166534;
     }
 
-    @media(max-width:1000px){
-      .loco-form-grid {
-        grid-template-columns:1fr 1fr;
-      }
-    }
-
-    @media(max-width:600px){
-      .loco-form-grid {
-        grid-template-columns:1fr;
-      }
-    }
-  </style>
-
-
-  <style id="movement-table-column-final-fix">
-    .table-wrap {
-      overflow-x:auto;
-    }
-
     table.movements-table {
       width:100%;
       min-width:1420px;
@@ -1244,30 +1226,12 @@
     table.movements-table th:nth-child(10), table.movements-table td:nth-child(10) { width:105px; text-align:center; }
     table.movements-table th:nth-child(11), table.movements-table td:nth-child(11) { width:275px; }
 
-    .loco-badge {
-      display:inline-block;
-      padding:5px 12px;
-      border-radius:999px;
-      background:#fef3c7;
-      color:#92400e;
-      font-weight:900;
-      font-size:.88rem;
-      white-space:nowrap;
+    @media(max-width:1000px){
+      .loco-form-grid { grid-template-columns:1fr 1fr; }
     }
 
-    .loco-empty {
-      color:#64748b;
-      font-weight:900;
-    }
-
-    .loco-panel {
-      background:#f1f7f8;
-      box-shadow:var(--shadow);
-      border:1px solid rgba(255,255,255,.45);
-      border-left:6px solid var(--teal);
-      padding:16px 18px;
-      margin:16px 0;
-      display:block;
+    @media(max-width:600px){
+      .loco-form-grid { grid-template-columns:1fr; }
     }
   </style>
 
@@ -1411,7 +1375,38 @@
             <tbody id="movementBody"></tbody>
           </table>
         </div>
-      </main>
+      
+      <details class="loco-panel" id="locoSubmitPanel" open>
+        <summary>Submit loco sighting / allocation</summary>
+        <form id="locoSightingForm" class="loco-form-grid">
+          <label>Date
+            <input type="date" id="locoDateInput" required>
+          </label>
+          <label>Headcode
+            <input type="text" id="locoHeadcodeInput" placeholder="6E24" maxlength="4" required>
+          </label>
+          <label>Loco
+            <input type="text" id="locoNumberInput" placeholder="66797" maxlength="10" required>
+          </label>
+          <label>Source note
+            <input type="text" id="locoSourceInput" placeholder="Seen at Acton Bridge / confirmed sighting" maxlength="160">
+          </label>
+          <label>Confidence
+            <select id="locoConfidenceInput">
+              <option value="confirmed">Confirmed</option>
+              <option value="likely">Likely</option>
+              <option value="unverified">Unverified</option>
+            </select>
+          </label>
+          <button type="submit">Submit sighting</button>
+        </form>
+        <div class="loco-form-note">
+          Submissions are saved as pending community sightings. They only appear in the Loco column after approval in Supabase.
+        </div>
+        <div class="loco-form-status" id="locoFormStatus"></div>
+      </details>
+
+</main>
 
       <aside class="panel">
         <div class="panel-title">
@@ -2990,7 +2985,7 @@
       try {
         const { data, error } = await supabaseClient
           .from("loco_allocations")
-          .select("running_date,train_id,loco_number,source_note,confidence,source_type,status")
+          .select("running_date,train_id,loco_number,source_note")
           .eq("running_date", selectedDate);
 
         if(error){
@@ -3005,10 +3000,7 @@
           if(!key) continue;
           map[key] = {
             loco_number: row.loco_number,
-            source_note: row.source_note || "",
-            confidence: row.confidence || "confirmed",
-            source_type: row.source_type || "manual",
-            status: row.status || "approved"
+            source_note: row.source_note || ""
           };
         }
 
@@ -3028,7 +3020,6 @@
       return map[key] || null;
     }
 
-
     function formatLocoCell(item){
       const type = item?.trainType || normaliseTrainType(item?.train_type || "", item?.trainId || item?.train_id || "");
       const showForType = type === "freight" || type === "light_engine";
@@ -3038,19 +3029,9 @@
       const loco = getLocoForMovement(item);
       if(!loco || !loco.loco_number) return `<span class="loco-empty">—</span>`;
 
-      const confidence = String(loco.confidence || "confirmed").toLowerCase();
-      const sourceType = String(loco.source_type || "manual").toLowerCase();
-      const chipClass = confidence === "confirmed" ? "confirmed" : sourceType === "prediction" ? "predicted" : "";
-      const chipText = sourceType === "prediction" ? "pred" : confidence === "confirmed" ? "ok" : confidence;
-      const titleParts = [];
-      if(loco.source_note) titleParts.push(loco.source_note);
-      if(loco.confidence) titleParts.push(`Confidence: ${loco.confidence}`);
-      if(loco.source_type) titleParts.push(`Source: ${loco.source_type}`);
-      const title = titleParts.length ? ` title="${escapeHtml(titleParts.join(" · "))}"` : "";
-
-      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span><span class="loco-source-chip ${chipClass}">${escapeHtml(chipText)}</span>`;
+      const title = loco.source_note ? ` title="${escapeHtml(loco.source_note)}"` : "";
+      return `<span class="loco-badge"${title}>${escapeHtml(loco.loco_number)}</span>`;
     }
-
 
 
 
@@ -3058,13 +3039,16 @@
       event.preventDefault();
 
       const status = document.getElementById("locoFormStatus");
-      const runningDate = document.getElementById("locoDateInput")?.value || todayIso();
+      const runningDate = document.getElementById("locoDateInput")?.value || document.getElementById("dateInput")?.value || todayIso();
       const headcode = String(document.getElementById("locoHeadcodeInput")?.value || "").trim().toUpperCase();
       const locoNumber = String(document.getElementById("locoNumberInput")?.value || "").trim().replace(/\s+/g, "");
       const sourceNote = String(document.getElementById("locoSourceInput")?.value || "").trim();
       const confidence = document.getElementById("locoConfidenceInput")?.value || "unverified";
 
-      if(status) status.textContent = "";
+      if(status) {
+        status.style.color = "#64748b";
+        status.textContent = "Submitting...";
+      }
 
       if(!/^[0-9][A-Z][0-9]{2}$/.test(headcode)){
         if(status) {
@@ -3109,7 +3093,7 @@
         console.warn("Loco sighting submit failed:", err);
         if(status) {
           status.style.color = "#b91c1c";
-          status.textContent = "Could not submit sighting. Check Supabase policy/table setup.";
+          status.textContent = "Could not submit sighting. Check Supabase table/policy.";
         }
       }
     }
@@ -3123,22 +3107,6 @@
       if(form && !form.dataset.bound){
         form.dataset.bound = "1";
         form.addEventListener("submit", submitLocoSighting);
-      }
-    }
-
-
-
-    function forceDefaultAllTrains(){
-      try {
-        activeFilter = "all";
-        const showSelect = document.getElementById("typeFilter") || document.getElementById("showFilter");
-        if(showSelect) showSelect.value = "all";
-        document.querySelectorAll(".quick-filter-btn").forEach(btn => {
-          const val = (btn.dataset.filter || btn.dataset.type || btn.textContent || "").toLowerCase().replace(/\s+/g, "_");
-          btn.classList.toggle("active", val === "all" || btn.textContent.trim().toLowerCase() === "all");
-        });
-      } catch(e) {
-        console.warn("Could not force all-trains default", e);
       }
     }
 
@@ -3270,70 +3238,39 @@
         `On ${formatDate(selectedDate)}, Acton Bridge has recorded ${daily.length} visible movement${daily.length === 1 ? "" : "s"} so far: ${passenger} passenger, ${freight} freight, ${lightEngine} light engine and ${other} ECS/other.`;
     }
 
-
-    function renderTable(rows){
+    function renderTable(){
+      const body = document.getElementById("movementBody");
       const tableWrap = document.getElementById("tableWrap");
-      const selectedDate = document.getElementById("dateInput").value || todayIso();
+      const emptyState = document.getElementById("emptyState");
+      const rows = getFilteredMovements();
+      body.innerHTML = "";
 
-      document.getElementById("tableTitle").textContent = `${STATION_NAME} [${STATION_CRS}] — ${formatDate(selectedDate)}`;
-      document.getElementById("pageRefreshed").innerHTML = `<strong>Page refreshed:</strong> ${now24h()}`;
-      document.getElementById("lastTrainCaptured").textContent = rows.length ? `Last train captured: ${rows[rows.length-1].time} (${rows[rows.length-1].trainId})` : "Last train captured: none yet";
+      rows.forEach(item=>{
+        const tr = document.createElement("tr");
+        if(item.trainType === "freight") tr.classList.add("freight-row");
+        if(item.trainType === "light_engine") tr.classList.add("light-engine-row");
+        if(item.trainType === "other" || String(item.trainId || "").startsWith("5") || String(item.trainId || "").startsWith("3")) {
+          tr.classList.add("ecs-row");
+        }
+        const typeLabel = displayTrainType(item.trainType,item.trainId);
+        tr.innerHTML = `
+          <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
+          <td data-label="Type"><span class="badge ${escapeHtml(item.trainType)}">${escapeHtml(typeLabel)}</span></td>
+          <td data-label="Train ID"><strong>${escapeHtml(item.trainId)}</strong></td>
+          <td data-label="Platform" class="time">${escapeHtml(item.platform || "—")}</td>
+          <td data-label="Origin">${escapeHtml(item.origin || "Unknown")}</td>
+          <td data-label="Destination">${escapeHtml(item.destination || "Unknown")}</td>
+          <td data-label="TOC">${escapeHtml(item.toc || "")}</td>
+          <td data-label="Status">${escapeHtml(item.status || "Passed")}</td>
+          <td data-label="Source"><span class="source-chip ${sourceClass(item.source)}">${escapeHtml(sourceLabel(item.source))}</span></td>
+          <td data-label="Data confidence">${confidenceHtml(item)}</td>
+        `;
+        body.appendChild(tr);
+      });
 
-      const tableHtml = `
-        <table class="movements-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Type</th>
-              <th>Train ID</th>
-              <th class="loco-col">Loco</th>
-              <th>Platform</th>
-              <th>Origin</th>
-              <th>Destination</th>
-              <th>TOC</th>
-              <th>Status</th>
-              <th>Source</th>
-              <th>Data confidence</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              rows.length
-                ? rows.map(item => {
-                    const rowClass = item.trainType === "freight"
-                      ? "freight-row"
-                      : item.trainType === "light_engine"
-                        ? "light-engine-row"
-                        : item.trainType === "ecs"
-                          ? "ecs-row"
-                          : "";
-
-                    return `
-                      <tr class="${rowClass}">
-                        <td>${escapeHtml(item.time)}</td>
-                        <td>${typeBadge(item.trainType, item.trainId)}</td>
-                        <td>${escapeHtml(item.trainId)}</td>
-                        <td class="loco-col">${formatLocoCell(item)}</td>
-                        <td>${escapeHtml(item.platform || "—")}</td>
-                        <td>${escapeHtml(item.origin || "Unknown")}</td>
-                        <td>${escapeHtml(item.destination || "Unknown")}</td>
-                        <td>${escapeHtml(item.toc || "—")}</td>
-                        <td>${escapeHtml(item.status || "Passed")}</td>
-                        <td>${sourceBadge(item.source)}</td>
-                        <td>${confidenceBadges(item)}</td>
-                      </tr>
-                    `;
-                  }).join("")
-                : `<tr><td colspan="11">No movements found for this date/filter.</td></tr>`
-            }
-          </tbody>
-        </table>
-      `;
-
-      tableWrap.innerHTML = tableHtml;
-      tableWrap.classList.toggle("hidden", false);
+      tableWrap.classList.toggle("hidden", rows.length===0);
+      emptyState.classList.toggle("hidden", rows.length!==0);
     }
-
 
     function renderArchive(){
       const archive = document.getElementById("archiveList");
@@ -3412,7 +3349,6 @@
     updateQuickFilterCompact();
 
     setupLocoSightingForm();
-      forceDefaultAllTrains();
       loadMovements();
     loadNextScheduledService();
     setInterval(loadMovements,60000);
