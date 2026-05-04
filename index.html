@@ -1147,7 +1147,7 @@
         <span id="nextServiceBox">Checking passenger and freight schedule...</span>
       </div>
       <div class="mini-card" id="tdApproachCard">
-        <strong>TD LIVE APPROACH / EXIT</strong>
+        <strong>TD live approach / exit</strong>
         <span id="tdApproachBox">Waiting for TD berth map...</span>
       </div>
     </section>
@@ -2408,9 +2408,16 @@
 
 
 
+
     async function loadTdApproachStatus(){
       const box = document.getElementById("tdApproachBox");
       if(!box) return;
+
+      const RECENT_TD_WINDOW_MINUTES = 60;
+
+      function clean(value){
+        return String(value || "").trim();
+      }
 
       function minutesAgo(value){
         if(!value) return null;
@@ -2457,8 +2464,7 @@
       try {
         const mapResult = await supabaseClient
           .from("td_berth_map")
-          .select("area_id, berth, side, label")
-          .eq("area_id", "CE");
+          .select("area_id, berth, side, label");
 
         if(mapResult.error){
           console.warn("TD berth map read failed:", mapResult.error);
@@ -2474,66 +2480,74 @@
           return;
         }
 
-        const mapRows = mapResult.data || [];
+        const mapRows = (mapResult.data || []).filter(row => clean(row.area_id) === "CE");
         let hartford = null;
         let weaverExit = null;
+
+        function applyCandidateFromMap(map, row, tsField){
+          if(!map || !row || !row.description) return;
+
+          const candidate = {
+            headcode: clean(row.description),
+            berth: clean(row.berth),
+            updated_at: row[tsField],
+            label: map.label
+          };
+
+          if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
+          if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+        }
 
         // 1) Current mapped berths.
         const currentResult = await supabaseClient
           .from("td_current_berths")
           .select("area_id, berth, description, updated_at")
-          .eq("area_id", "CE")
           .not("description", "is", null);
 
         if(!currentResult.error){
           for(const map of mapRows){
-            const current = (currentResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
-            if(!current) continue;
-
-            const candidate = {
-              headcode: current.description,
-              berth: current.berth,
-              updated_at: current.updated_at,
-              label: map.label
-            };
-
-            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
-            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+            const current = (currentResult.data || []).find(row =>
+              clean(row.area_id) === clean(map.area_id) &&
+              clean(row.berth) === clean(map.berth) &&
+              clean(row.description)
+            );
+            if(current) applyCandidateFromMap(map, current, "updated_at");
           }
         } else {
           console.warn("TD current berths read failed:", currentResult.error);
         }
 
         // 2) Recent mapped sightings from td_berth_events.
-        // Uses a time window so the card does not blank out immediately after a train steps out of COUT.
+        // 60-minute window, because the old 15-minute window was too easy to miss.
         let eventReadOk = false;
-        const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const sinceIso = new Date(Date.now() - RECENT_TD_WINDOW_MINUTES * 60 * 1000).toISOString();
 
         const eventResult = await supabaseClient
           .from("td_berth_events")
           .select("area_id, berth, description, event_ts")
-          .eq("area_id", "CE")
           .gte("event_ts", sinceIso)
           .not("description", "is", null)
           .order("event_ts", { ascending:false })
-          .limit(500);
+          .limit(1000);
 
         if(!eventResult.error){
           eventReadOk = true;
+
           for(const map of mapRows){
-            const event = (eventResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
-            if(!event) continue;
-
-            const candidate = {
-              headcode: event.description,
-              berth: event.berth,
-              updated_at: event.event_ts,
-              label: map.label
-            };
-
-            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
-            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+            const event = (eventResult.data || []).find(row =>
+              clean(row.area_id) === clean(map.area_id) &&
+              clean(row.berth) === clean(map.berth) &&
+              clean(row.description)
+            );
+            if(event) applyCandidateFromMap(map, event, "event_ts");
           }
+
+          console.log("TD recent mapped check", {
+            mappedBerths: mapRows.length,
+            recentEvents: (eventResult.data || []).length,
+            hartford,
+            weaverExit
+          });
         } else {
           console.warn("TD recent event read failed:", eventResult.error);
         }
@@ -2542,9 +2556,9 @@
           hartford,
           weaverExit,
           hartford || weaverExit
-            ? "Current/recent mapped TD sighting"
+            ? `Current/recent mapped TD sighting, ${RECENT_TD_WINDOW_MINUTES} minute window`
             : eventReadOk
-              ? "No mapped berth sighting in the last 15 minutes"
+              ? `No mapped berth sighting in the last ${RECENT_TD_WINDOW_MINUTES} minutes`
               : "Recent TD events not readable; showing current berths only",
           eventReadOk ? "direct + recent" : "direct"
         );
@@ -2569,9 +2583,17 @@
 
 
 
+
+
     async function loadTdApproachStatus(){
       const box = document.getElementById("tdApproachBox");
       if(!box) return;
+
+      const RECENT_TD_WINDOW_MINUTES = 60;
+
+      function clean(value){
+        return String(value || "").trim();
+      }
 
       function minutesAgo(value){
         if(!value) return null;
@@ -2618,8 +2640,7 @@
       try {
         const mapResult = await supabaseClient
           .from("td_berth_map")
-          .select("area_id, berth, side, label")
-          .eq("area_id", "CE");
+          .select("area_id, berth, side, label");
 
         if(mapResult.error){
           console.warn("TD berth map read failed:", mapResult.error);
@@ -2635,66 +2656,74 @@
           return;
         }
 
-        const mapRows = mapResult.data || [];
+        const mapRows = (mapResult.data || []).filter(row => clean(row.area_id) === "CE");
         let hartford = null;
         let weaverExit = null;
+
+        function applyCandidateFromMap(map, row, tsField){
+          if(!map || !row || !row.description) return;
+
+          const candidate = {
+            headcode: clean(row.description),
+            berth: clean(row.berth),
+            updated_at: row[tsField],
+            label: map.label
+          };
+
+          if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
+          if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+        }
 
         // 1) Current mapped berths.
         const currentResult = await supabaseClient
           .from("td_current_berths")
           .select("area_id, berth, description, updated_at")
-          .eq("area_id", "CE")
           .not("description", "is", null);
 
         if(!currentResult.error){
           for(const map of mapRows){
-            const current = (currentResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
-            if(!current) continue;
-
-            const candidate = {
-              headcode: current.description,
-              berth: current.berth,
-              updated_at: current.updated_at,
-              label: map.label
-            };
-
-            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
-            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+            const current = (currentResult.data || []).find(row =>
+              clean(row.area_id) === clean(map.area_id) &&
+              clean(row.berth) === clean(map.berth) &&
+              clean(row.description)
+            );
+            if(current) applyCandidateFromMap(map, current, "updated_at");
           }
         } else {
           console.warn("TD current berths read failed:", currentResult.error);
         }
 
         // 2) Recent mapped sightings from td_berth_events.
-        // Uses a time window so the card does not blank out immediately after a train steps out of COUT.
+        // 60-minute window, because the old 15-minute window was too easy to miss.
         let eventReadOk = false;
-        const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const sinceIso = new Date(Date.now() - RECENT_TD_WINDOW_MINUTES * 60 * 1000).toISOString();
 
         const eventResult = await supabaseClient
           .from("td_berth_events")
           .select("area_id, berth, description, event_ts")
-          .eq("area_id", "CE")
           .gte("event_ts", sinceIso)
           .not("description", "is", null)
           .order("event_ts", { ascending:false })
-          .limit(500);
+          .limit(1000);
 
         if(!eventResult.error){
           eventReadOk = true;
+
           for(const map of mapRows){
-            const event = (eventResult.data || []).find(row => row.area_id === map.area_id && row.berth === map.berth && row.description);
-            if(!event) continue;
-
-            const candidate = {
-              headcode: event.description,
-              berth: event.berth,
-              updated_at: event.event_ts,
-              label: map.label
-            };
-
-            if(map.side === "hartford") hartford = pickNewest(hartford, candidate);
-            if(map.side === "weaver") weaverExit = pickNewest(weaverExit, candidate);
+            const event = (eventResult.data || []).find(row =>
+              clean(row.area_id) === clean(map.area_id) &&
+              clean(row.berth) === clean(map.berth) &&
+              clean(row.description)
+            );
+            if(event) applyCandidateFromMap(map, event, "event_ts");
           }
+
+          console.log("TD recent mapped check", {
+            mappedBerths: mapRows.length,
+            recentEvents: (eventResult.data || []).length,
+            hartford,
+            weaverExit
+          });
         } else {
           console.warn("TD recent event read failed:", eventResult.error);
         }
@@ -2703,9 +2732,9 @@
           hartford,
           weaverExit,
           hartford || weaverExit
-            ? "Current/recent mapped TD sighting"
+            ? `Current/recent mapped TD sighting, ${RECENT_TD_WINDOW_MINUTES} minute window`
             : eventReadOk
-              ? "No mapped berth sighting in the last 15 minutes"
+              ? `No mapped berth sighting in the last ${RECENT_TD_WINDOW_MINUTES} minutes`
               : "Recent TD events not readable; showing current berths only",
           eventReadOk ? "direct + recent" : "direct"
         );
@@ -2723,6 +2752,7 @@
         `;
       }
     }
+
 
 
 
