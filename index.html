@@ -2216,5 +2216,313 @@
     setInterval(loadTdApproachStatus,15000);
     setInterval(updateNextServiceClockOnly,1000);
   </script>
+
+
+  <style id="ov-layout-chart-patch">
+    /* Layout tidy-up for summary widgets */
+    .mini-grid {
+      grid-template-columns: minmax(360px, 1.18fr) minmax(560px, 1.55fr) minmax(360px, 1.12fr) !important;
+      align-items: stretch !important;
+      gap: 16px !important;
+    }
+
+    .mini-grid > .mini-card {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-self: stretch !important;
+    }
+
+    .mini-grid > .mini-card > strong {
+      display:block;
+      margin-bottom:10px;
+    }
+
+    #latestMovement {
+      flex: 1 1 auto;
+      display: block;
+    }
+
+    #latestMovement .latest-captured-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    #latestMovement .latest-captured-line {
+      min-height: 132px;
+      padding: 10px 12px;
+    }
+
+    #latestMovement .latest-captured-main {
+      font-size: 0.96rem;
+      line-height: 1.32;
+    }
+
+    #latestMovement .latest-captured-note {
+      margin-top: 6px;
+    }
+
+    #nextServiceCard .next-service-widget {
+      height: 100%;
+    }
+
+    #nextServiceCard .next-service-body {
+      align-content: start;
+    }
+
+    #tdApproachCard .td-approach-grid,
+    #tdApproachCard #tdApproachBox {
+      flex: 1 1 auto;
+    }
+
+    /* Operator chart card */
+    .operator-chart-card {
+      border-left: 6px solid var(--teal);
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+
+    .operator-chart-header {
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:flex-start;
+      margin-bottom:12px;
+      flex-wrap:wrap;
+    }
+
+    .operator-chart-title {
+      font-weight: 800;
+      font-size: 1.08rem;
+      color: var(--text);
+      margin: 0;
+    }
+
+    .operator-chart-subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.35;
+    }
+
+    .operator-chart-topline {
+      font-weight: 800;
+      color: var(--text);
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      min-width: 240px;
+    }
+
+    .operator-bars {
+      display:grid;
+      gap:10px;
+    }
+
+    .operator-bar-row {
+      display:grid;
+      grid-template-columns: 62px minmax(180px, 1fr) 56px;
+      gap:10px;
+      align-items:center;
+    }
+
+    .operator-code {
+      font-weight: 900;
+      color: var(--text);
+      font-size: 0.95rem;
+      letter-spacing: .03em;
+    }
+
+    .operator-track {
+      position:relative;
+      height: 18px;
+      border-radius: 999px;
+      background: #e2e8f0;
+      overflow:hidden;
+    }
+
+    .operator-fill {
+      position:absolute;
+      inset:0 auto 0 0;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #0f9aa8 0%, #2563eb 100%);
+    }
+
+    .operator-count {
+      font-weight: 800;
+      color: var(--text);
+      text-align:right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .operator-empty {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    @media (max-width: 1500px) {
+      .mini-grid {
+        grid-template-columns: minmax(320px, 1.08fr) minmax(500px, 1.45fr) minmax(320px, 1fr) !important;
+      }
+      .operator-bar-row {
+        grid-template-columns: 58px minmax(140px, 1fr) 52px;
+      }
+    }
+
+    @media (max-width: 1200px) {
+      .mini-grid {
+        grid-template-columns: 1fr !important;
+      }
+      #latestMovement .latest-captured-grid {
+        grid-template-columns: 1fr;
+      }
+      #nextServiceCard .next-service-body {
+        grid-template-columns: 1fr;
+      }
+      .operator-bar-row {
+        grid-template-columns: 56px minmax(120px, 1fr) 48px;
+      }
+    }
+  </style>
+
+
+  <script id="ov-layout-chart-patch-script">
+    (function(){
+      const LOCATION_ALIASES = {
+        CARLILY: "Carlisle L.I.P.Y.",
+        CREWBHM: "Crewe Basford Hall",
+        CREWEMD: "Crewe E.M.D.",
+        CREWECS: "Crewe C.S.",
+        ACBG: "Acton Bridge",
+        ACB: "Acton Bridge",
+        DONCDDG: "Doncaster Down Decoy GBRf",
+        NTHNFHH: "Northenden R.T.S Flhh",
+        CREWPAD: "Crewe P.A.D.",
+        DAVNTRYI: "Daventry International Rail Freight Terminal",
+        DAVINTRE: "Daventry Int Recep Term"
+      };
+
+      const TOC_LABELS = {
+        LM: "LM",
+        VT: "VT",
+        ZZ: "ZZ",
+        AW: "AW",
+        NT: "NT"
+      };
+
+      const originalDisplayLocationName = typeof displayLocationName === 'function' ? displayLocationName : function(value){ return String(value || '').trim() || 'Unknown'; };
+
+      displayLocationName = function(value){
+        const raw = String(value || '').trim();
+        if(!raw || raw === 'null' || raw === 'undefined') return 'Unknown';
+        const upper = raw.toUpperCase();
+        if(LOCATION_ALIASES[upper]) return LOCATION_ALIASES[upper];
+        if(/^\d{4,}$/.test(raw)) return 'Unknown';
+        return originalDisplayLocationName(raw);
+      };
+
+      function remapVisibleMovementLocations(){
+        if(!Array.isArray(window.movements)) return;
+        window.movements = window.movements.map(item => ({
+          ...item,
+          origin: displayLocationName(item.origin),
+          destination: displayLocationName(item.destination)
+        }));
+      }
+
+      function ensureOperatorChartCard(){
+        if(document.getElementById('operatorChartCard')) return;
+        const summary = document.getElementById('dailySummarySentence');
+        if(!summary || !summary.parentNode) return;
+
+        const section = document.createElement('section');
+        section.className = 'card operator-chart-card';
+        section.id = 'operatorChartCard';
+        section.innerHTML = `
+          <div class="operator-chart-header">
+            <div>
+              <h3 class="operator-chart-title">Operators at Acton Bridge today</h3>
+              <p class="operator-chart-subtitle">Recommended view: a bar chart, because it is easier to compare operator totals than a pie chart.</p>
+            </div>
+            <div class="operator-chart-topline" id="operatorChartTopline">Waiting for operator totals...</div>
+          </div>
+          <div class="operator-bars" id="operatorChartBox"></div>
+        `;
+
+        summary.insertAdjacentElement('afterend', section);
+      }
+
+      function renderOperatorChart(){
+        ensureOperatorChartCard();
+        const box = document.getElementById('operatorChartBox');
+        const top = document.getElementById('operatorChartTopline');
+        if(!box || !top || typeof getDailyMovements !== 'function') return;
+
+        const selectedDate = (document.getElementById('dateInput') || {}).value;
+        const daily = (getDailyMovements(selectedDate) || []).filter(item => item && item.toc);
+
+        const counts = {};
+        for(const item of daily){
+          const code = String(item.toc || '').trim().toUpperCase() || 'Other';
+          counts[code] = (counts[code] || 0) + 1;
+        }
+
+        const rows = Object.entries(counts)
+          .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+        if(!rows.length){
+          top.textContent = 'No operator data available yet';
+          box.innerHTML = '<div class="operator-empty">Operator totals will appear here once movements have loaded.</div>';
+          return;
+        }
+
+        const maxValue = rows[0][1];
+        const [topCode, topCount] = rows[0];
+        top.innerHTML = `Most frequent operator today: <strong>${topCode}</strong> — ${topCount} movement${topCount === 1 ? '' : 's'}`;
+
+        box.innerHTML = rows.map(([code, count]) => {
+          const width = Math.max(6, Math.round((count / maxValue) * 100));
+          const label = TOC_LABELS[code] || code;
+          return `
+            <div class="operator-bar-row">
+              <div class="operator-code">${label}</div>
+              <div class="operator-track"><div class="operator-fill" style="width:${width}%"></div></div>
+              <div class="operator-count">${count}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      function refreshUiPatch(){
+        remapVisibleMovementLocations();
+        if(typeof renderAll === 'function') {
+          try { renderAll(); } catch (e) { console.warn('renderAll refresh failed', e); }
+        }
+        if(typeof loadNextScheduledService === 'function') {
+          try { loadNextScheduledService(); } catch (e) { console.warn('loadNextScheduledService refresh failed', e); }
+        }
+        try { renderOperatorChart(); } catch (e) { console.warn('renderOperatorChart failed', e); }
+      }
+
+      const originalRenderAll = typeof renderAll === 'function' ? renderAll : null;
+      if(originalRenderAll){
+        renderAll = function(){
+          originalRenderAll();
+          renderOperatorChart();
+        };
+      }
+
+      if(document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', refreshUiPatch, { once:true });
+      } else {
+        setTimeout(refreshUiPatch, 50);
+      }
+
+      window.renderOperatorChart = renderOperatorChart;
+      window.refreshUiPatch = refreshUiPatch;
+    })();
+  </script>
+
 </body>
 </html>
