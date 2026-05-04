@@ -11,8 +11,8 @@
     :root {
       --teal:#087f8c;
       --teal-dark:#066977;
-      --teal-soft:#d8eef2;
-      --row:#e7f5f8;
+      --teal-soft:#cfe7ec;
+      --row:#dff0f3;
       --line:#c8dde0;
       --card:#ffffff;
       --text:#1f2937;
@@ -36,7 +36,7 @@
     .page { max-width:1380px; margin:0 auto; padding:18px; }
 
     header {
-      background:rgba(255,255,255,.96);
+      background:#f1f7f8;
       border-left:10px solid var(--teal);
       padding:18px 20px;
       margin-bottom:16px;
@@ -73,7 +73,7 @@
     .notice.ok { background:#ecfdf5; border-color:#bbf7d0; color:#166534; }
 
     .box, .description-box, .summary-sentence, .controls, .quick-filters, .panel, .stat-card, .hero-card, .mini-card {
-      background:rgba(255,255,255,.96);
+      background:#f1f7f8;
       box-shadow:var(--shadow);
       border:1px solid rgba(255,255,255,.45);
     }
@@ -254,20 +254,20 @@
 
     .table-wrap { overflow-x:auto; }
 
-    table { width:100%; border-collapse:collapse; min-width:1120px; font-size:15px; }
+    table { width:100%; border-collapse:collapse; min-width:1260px; font-size:15px; }
 
     th {
       background:var(--teal-soft);
       color:#111827;
       text-align:left;
-      padding:7px 10px;
+      padding:7px 14px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
     }
 
     td {
       background:var(--row);
-      padding:5px 10px;
+      padding:5px 14px;
       border-bottom:1px solid var(--line);
       white-space:nowrap;
       font-style:italic;
@@ -289,6 +289,12 @@
     }
 
     td:nth-child(5), td:nth-child(6) { font-weight:700; }
+
+    th:nth-child(3), td:nth-child(3) { min-width:92px; }
+    th:nth-child(5), td:nth-child(5) { min-width:230px; }
+    th:nth-child(6), td:nth-child(6) { min-width:230px; }
+    th:nth-child(10), td:nth-child(10) { min-width:190px; }
+
     .time, .count { text-align:right; font-weight:bold; }
 
     .badge, .source-chip {
@@ -333,7 +339,7 @@
     .archive-item:last-child { border-bottom:none; }
     .archive-item:hover { color:var(--teal-dark); }
 
-    .empty { padding:28px; text-align:center; color:var(--muted); background:rgba(255,255,255,.96); }
+    .empty { padding:28px; text-align:center; color:var(--muted); background:#f1f7f8; }
     .hidden { display:none!important; }
 
 
