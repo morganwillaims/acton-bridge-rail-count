@@ -315,6 +315,24 @@
 
     tr:hover td { background:#dff0f4; }
 
+
+    tr.ecs-row td {
+      background:#fff4cc;
+    }
+
+    tr.ecs-row:hover td {
+      background:#ffe8a3;
+    }
+
+    tr.ecs-row td:first-child {
+      border-left:5px solid #f59e0b;
+    }
+
+    tr.ecs-row .badge.other {
+      background:#fde68a;
+      color:#78350f;
+    }
+
     tr.freight-row td {
       background:#dbeafe;
     }
@@ -484,12 +502,44 @@
       }
 
 
+
+      tr.ecs-row {
+        border-color:#f59e0b;
+        border-left-color:#d97706;
+      }
+
+      tr.ecs-row td {
+        background:rgba(255,244,204,.95);
+      }
+
+      tr.ecs-row td:first-child {
+        background:rgba(245,158,11,.18);
+      }
+
       tr.freight-row {
         border-color:#2563eb;
         border-left-color:#1d4ed8;
       }
 
-      tr.freight-row td {
+  
+    tr.ecs-row td {
+      background:#fff4cc;
+    }
+
+    tr.ecs-row:hover td {
+      background:#ffe8a3;
+    }
+
+    tr.ecs-row td:first-child {
+      border-left:5px solid #f59e0b;
+    }
+
+    tr.ecs-row .badge.other {
+      background:#fde68a;
+      color:#78350f;
+    }
+
+    tr.freight-row td {
         background:rgba(219,234,254,.92);
       }
 
@@ -542,7 +592,7 @@
           <li><strong>Origin and destination may show as Unknown</strong> until the schedule loader matches the working.</li>
           <li><strong>Duplicate TRUST reports</strong> for the same train within a few minutes are combined into one visible movement.</li>
           <li><strong>Today uses UK time</strong> via Europe/London, so it changes date correctly at UK midnight.</li>
-          <li><strong>Next service</strong> only appears for Today and uses UK time. It only shows a confirmed booked Acton Bridge pass where the route is known.</li>
+          <li><strong>Next booked services</strong> only appears for Today and uses UK time. It shows booked passenger, freight and ECS/other services separately; live running may differ.</li>
         </ul>
       </div>
     </details>
@@ -607,8 +657,8 @@
         <span id="latestMovement">None yet</span>
       </div>
       <div class="mini-card" id="nextServiceCard">
-        <strong>Next service passing Acton Bridge</strong>
-        <span id="nextServiceBox">Checking schedule...</span>
+        <strong>Next booked services</strong>
+        <span id="nextServiceBox">Checking passenger and freight schedule...</span>
       </div>
     </section>
 
@@ -851,23 +901,32 @@
       return true;
     }
 
+
+    function scheduleTypeFromHeadcode(headcode){
+      const text = String(headcode || "").trim().toUpperCase();
+      if(/^[4678]/.test(text)) return "freight";
+      if(/^[35]/.test(text)) return "ecs";
+      if(/^[0129]/.test(text)) return "passenger";
+      return "other";
+    }
+
     async function loadNextScheduledService(){
       const box = document.getElementById("nextServiceBox");
-      const card = document.getElementById("nextServiceCard");
-      if(!box || !card) return;
+      const card = document.getElementById("nextServiceCard") || (box ? box.closest(".mini-card") : null);
+      if(!box) return;
 
       try {
         const selectedDate = document.getElementById("dateInput").value || todayIso();
         const today = todayIso();
 
         if(selectedDate !== today){
-          card.classList.add("hidden");
+          if(card) card.classList.add("hidden");
           box.textContent = "";
           return;
         }
 
-        card.classList.remove("hidden");
-        box.textContent = "Checking next confirmed booked pass...";
+        if(card) card.classList.remove("hidden");
+        box.textContent = "Checking passenger and freight schedule...";
 
         const { data, error } = await supabaseClient
           .from("schedule_locations")
@@ -892,16 +951,16 @@
               stp_indicator
             )
           `)
-          .eq("tiploc", STATION_TIPLOC)
+          .eq("tiploc", "ACBG")
           .limit(5000);
 
         if(error){
-          console.error("Next service schedule error:", error);
-          box.textContent = "Schedule unavailable";
+          console.error("Next booked service error:", error);
+          box.textContent = "Booked schedule unavailable";
           return;
         }
 
-        const nowMinutes = ukMinutesNow();
+        const nowMinutes = typeof ukMinutesNow === "function" ? ukMinutesNow() : localMinutesNow();
 
         const upcoming = (data || [])
           .map(row => {
@@ -909,17 +968,19 @@
             const bookedTime = row.pass_time || row.departure || row.arrival;
             const bookedMinutes = parseScheduleTimeToMinutes(bookedTime);
             const headcode = row.signalling_id || service?.signalling_id || "Unknown";
-            const origin = displayLocationName(service?.origin_name);
-            const destination = displayLocationName(service?.destination_name);
+            const originName = displayLocationName(service?.origin_name);
+            const destinationName = displayLocationName(service?.destination_name);
+            const type = scheduleTypeFromHeadcode(headcode);
+
             return {
               headcode,
+              type,
               bookedTime,
               bookedMinutes,
               platform: row.platform || "—",
-              line: row.line || "",
-              path: row.path || "",
-              origin,
-              destination,
+              origin: originName,
+              destination: destinationName,
+              toc: service?.atoc_code || "",
               service
             };
           })
@@ -929,24 +990,29 @@
           .filter(item => activeScheduleOnDate(item.service, selectedDate))
           .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode))
           .filter(item => item.origin !== "Unknown" && item.destination !== "Unknown")
-          .sort((a,b)=>a.bookedMinutes-b.bookedMinutes);
+          .sort((a,b) => a.bookedMinutes - b.bookedMinutes);
 
-        if(!upcoming.length){
-          box.textContent = "No confirmed booked services due through Acton Bridge today";
-          return;
+        const nextPassenger = upcoming.find(item => item.type === "passenger");
+        const nextFreight = upcoming.find(item => item.type === "freight");
+        const nextEcs = upcoming.find(item => item.type === "ecs");
+
+        function formatNext(label, item){
+          if(!item) return `<span class="next-service-line"><strong>${label}:</strong> none found today</span>`;
+          const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
+          return `<span class="next-service-line"><strong>${label}:</strong> ${displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(item.origin)} to ${escapeHtml(item.destination)}${escapeHtml(platformText)}</span>`;
         }
 
-        const next = upcoming[0];
-        const platformText = next.platform && next.platform !== "—" ? ` · Platform ${next.platform}` : "";
-        const pathLineText = next.line || next.path
-          ? ` · ${[next.path && `Path ${next.path}`, next.line && `Line ${next.line}`].filter(Boolean).join(" · ")}`
-          : "";
-        box.textContent = `${displayScheduleTime(next.bookedTime)} — ${next.headcode} — ${next.origin} to ${next.destination}${platformText}${pathLineText}`;
+        box.innerHTML =
+          formatNext("Passenger", nextPassenger) +
+          formatNext("Freight", nextFreight) +
+          formatNext("ECS/Other", nextEcs) +
+          `<span class="next-service-warning">Booked schedule only — live running may differ.</span>`;
       } catch(err) {
         console.error("Next service box failed:", err);
-        box.textContent = "Schedule unavailable";
+        box.textContent = "Booked schedule unavailable";
       }
     }
+
 
     async function loadMovements(){
       const {data,error} = await supabaseClient
@@ -1043,6 +1109,9 @@
       rows.forEach(item=>{
         const tr = document.createElement("tr");
         if(item.trainType === "freight") tr.classList.add("freight-row");
+        if(item.trainType === "other" || String(item.trainId || "").startsWith("5") || String(item.trainId || "").startsWith("3")) {
+          tr.classList.add("ecs-row");
+        }
         const typeLabel = displayTrainType(item.trainType,item.trainId);
         tr.innerHTML = `
           <td data-label="Time" class="time">${escapeHtml(item.time)}</td>
