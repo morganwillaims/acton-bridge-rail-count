@@ -31,11 +31,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-          # 5 hours 55 minutes, leaving a 5-minute safety gap
           ROUTE_BACKFILL_LOOP_SECONDS: "21300"
-
-          # Check every 60 seconds
           ROUTE_BACKFILL_SLEEP_SECONDS: "60"
-
         run: python route_backfill_loop.py
