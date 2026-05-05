@@ -3611,6 +3611,15 @@
       return override?.source_note || "";
     }
 
+    function headcodeType(headcode){
+      const text = String(headcode || "").trim().toUpperCase();
+      if(/^0/.test(text)) return "light_engine";
+      if(/^[4678]/.test(text)) return "freight";
+      if(/^[35]/.test(text)) return "ecs";
+      if(/^[129]/.test(text)) return "passenger";
+      return "other";
+    }
+
 
 
     async function enrichUnknownMovementRoutes(selectedDate){
