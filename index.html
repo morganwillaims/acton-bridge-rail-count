@@ -3693,12 +3693,19 @@
     }
 
     async function loadMovements(){
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
+
+      // Emergency lightweight load:
+      // Only fetch the selected day and only the columns the page actually renders.
+      // This massively reduces Supabase egress and prevents the page hanging while the
+      // database is near its free-plan limits.
       const {data,error} = await supabaseClient
         .from("station_movements")
-        .select("*")
+        .select("id,running_date,station_crs,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,stp,stp_indicator,stp_type,schedule_type")
         .eq("station_crs", STATION_CRS)
-        .order("running_date",{ascending:false})
-        .order("actual_time",{ascending:true});
+        .eq("running_date", selectedDate)
+        .order("actual_time",{ascending:true})
+        .limit(1200);
 
       if(error){
         console.error(error);
@@ -3716,8 +3723,6 @@
       if(typeFilterEl && !typeFilterEl.value) typeFilterEl.value = "all";
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
-      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
-
       // Fast first paint: show the captured TRUST table immediately.
       // Slow extras such as loco allocations, STP overrides and route enrichment run after,
       // so the page never sits on "Loading Acton Bridge movement data..." for ages.
