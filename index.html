@@ -1685,8 +1685,10 @@
     const STATION_CRS = "ACB";
     const STATION_NAME = "Acton Bridge";
     const STATION_TIPLOC = "ACBG";
+    const STATION_TIPLOCS = ["ACBG", "ACTNBDG", "ACB"];
 
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window.STATION_TIPLOCS = STATION_TIPLOCS;
     let movements = [];
     let lastLoadedAt = null;
     let userPickedArchiveDate = false;
@@ -2239,6 +2241,15 @@
         BASFHFL:"Basford Hall Yard (Fl)",
         RUNCFLH:"Runcorn Folly Lane (Flhh)",
         FOLLYLN:"Folly Lane ICI Sidings",
+        MOSEPDF:"Mossend Pd Stirling (Flhh)",
+        GRNGFLT:"Grangemouth F.L.T.",
+        TRFDEUT:"Trafford Euro Terminal",
+        TUNSTDS:"Tunstead Sidings",
+        PEAKRMC:"Peak Forest R.M.C.",
+        DALAMFD:"Dallam Freight Depot",
+        DITTAHF:"Ditton A.H.F.",
+        CARLNY:"Carlisle N.Y.",
+        CARLISLENY:"Carlisle N.Y.",
 
         ACBG:"Acton Bridge",
         SLATFDD:"Slateford Depot",
@@ -2280,10 +2291,10 @@
         if(LOCATION_MAP[code]) return LOCATION_MAP[code];
 
         if(raw && raw !== "Unknown" && raw !== "Route pending" && raw !== "null" && raw !== "undefined" && raw !== "NAME GOES HERE" && !/^\d{4,}$/.test(raw)){
-          return raw;
+          return typeof displayLocationName === "function" ? displayLocationName(raw) : raw;
         }
 
-        return LOCATION_MAP[code] || "Route pending";
+        return LOCATION_MAP[code] || (typeof displayLocationName === "function" ? displayLocationName(code) : "Route pending");
       }
 
       function toSeconds(value){
@@ -2412,7 +2423,7 @@
               stp_indicator
             )
           `)
-          .eq("tiploc", "ACBG")
+          .in("tiploc", stationTiplocList())
           .limit(5000);
 
         if(result.error){
@@ -2453,7 +2464,7 @@
                 stp_indicator
               )
             `)
-            .eq("tiploc", "ACBG")
+            .in("tiploc", stationTiplocList())
             .limit(2000);
 
           if(result.error){
@@ -2566,12 +2577,74 @@
         }
       }
 
+
+      async function fetchTrustActivatedRows(){
+        const possibleTables = [
+          "trust_activated_services",
+          "trust_activations",
+          "train_activations",
+          "activated_services",
+          "trust_services"
+        ];
+        const output = [];
+
+        for(const tableName of possibleTables){
+          try {
+            const { data, error } = await supabaseClient
+              .from(tableName)
+              .select("*")
+              .limit(1000);
+
+            if(error) continue;
+
+            (data || []).forEach(row => {
+              const rowDate = row.running_date || row.date || row.schedule_date || row.service_date || row.origin_departure_date || selectedDate;
+              if(rowDate && String(rowDate).slice(0,10) !== selectedDate) return;
+
+              const headcode = String(row.train_id || row.signalling_id || row.headcode || row.trainId || row.train_uid || "").trim().toUpperCase();
+              if(!/^[0-9][A-Z][0-9]{2}$/.test(headcode)) return;
+
+              output.push({
+                headcode,
+                type: headcodeType(headcode),
+                sourceLabel: "TRUST",
+                origin: cleanRouteName(row.origin || row.origin_name, row.origin_tiploc),
+                destination: cleanRouteName(row.destination || row.destination_name, row.destination_tiploc),
+                activatedAt: row.activated_at || row.activation_time || row.updated_at || row.created_at || ""
+              });
+            });
+
+            if(output.length) break;
+          } catch(err) {
+            // Table may not exist on older deployments. That is safe: no ghost freight is shown.
+          }
+        }
+
+        return output;
+      }
+
+      function buildActivatedFreightAtActonBridge(activatedRows, scheduledRows){
+        const activatedHeadcodes = new Set(
+          (activatedRows || [])
+            .filter(row => row.type === "freight")
+            .map(row => String(row.headcode || "").trim().toUpperCase())
+        );
+
+        if(!activatedHeadcodes.size) return [];
+
+        return dedupeByHeadcodeTime(scheduledRows)
+          .filter(item => item.type === "freight")
+          .filter(item => activatedHeadcodes.has(String(item.headcode || "").trim().toUpperCase()))
+          .map(item => ({ ...item, sourceLabel:"TRUST" }));
+      }
+
       try {
-        const [bookedRows, vstpRows, capturedRows, tdRows] = await Promise.all([
+        const [bookedRows, vstpRows, capturedRows, tdRows, activatedRows] = await Promise.all([
           fetchBookedRows(),
           fetchVstpRows(),
           fetchCapturedRows(),
-          fetchTdRows()
+          fetchTdRows(),
+          fetchTrustActivatedRows()
         ]);
 
         const capturedToday = capturedRows.map(row => ({ trainId:row.trainId || row.headcode, time:row.time || row.bookedTime }));
@@ -2618,7 +2691,7 @@
           };
         }
 
-        const nextPassenger = attachTrustDelay(
+        let nextPassenger = attachTrustDelay(
           chooseNext(allScheduleForPassenger, "passenger", {
             allowBookedOnly:true,
             overdueGraceSeconds:5 * 60,
@@ -2626,15 +2699,43 @@
           })
         );
 
+        // Safety fallback: if the passenger schedule table is empty/mismatched, still show a future
+        // captured/TRUST passenger if one exists rather than leaving the card blank.
+        if(!nextPassenger){
+          nextPassenger = chooseNext(capturedRows, "passenger", {
+            allowBookedOnly:false,
+            overdueGraceSeconds:5 * 60,
+            maxAheadSeconds:90 * 60
+          });
+        }
+
         // Freight next expected MUST be TRUST-only. Do not use booked/VSTP-only freight,
         // because those create ghost/as-required paths.
-        const trustFreightOnly = dedupeByHeadcodeTime(capturedRows)
-          .filter(item => item.type === "freight");
+        // Priority: explicit TRUST activation table if present, then already captured/future TRUST rows,
+        // then TD-live headcodes only when they can be matched to a future booked route.
+        const scheduleRowsForFreightRoute = bookedRows.concat(vstpRows);
+        const activatedFreightAtActonBridge = buildActivatedFreightAtActonBridge(activatedRows, scheduleRowsForFreightRoute);
+
+        const tdFreightMatchedToSchedule = tdRows
+          .filter(item => item.type === "freight")
+          .map(item => {
+            const route = findRelatedBookedRoute(item) || scheduleRowsForFreightRoute
+              .filter(row => row.type === "freight")
+              .filter(row => String(row.headcode || "").toUpperCase() === String(item.headcode || "").toUpperCase())
+              .filter(row => row.bookedSeconds !== null && row.bookedSeconds >= nowSeconds - 5 * 60)
+              .sort((a,b) => a.bookedSeconds - b.bookedSeconds)[0];
+            return route ? { ...route, sourceLabel:"TRUST" } : null;
+          })
+          .filter(Boolean);
+
+        const trustFreightOnly = dedupeByHeadcodeTime(
+          activatedFreightAtActonBridge.concat(capturedRows).concat(tdFreightMatchedToSchedule)
+        ).filter(item => item.type === "freight");
 
         const nextFreight = chooseNext(trustFreightOnly, "freight", {
           allowBookedOnly:false,
           overdueGraceSeconds:5 * 60,
-          maxAheadSeconds:90 * 60
+          maxAheadSeconds:120 * 60
         });
 
         const trustLightEngineOnly = dedupeByHeadcodeTime(capturedRows)
@@ -3234,9 +3335,12 @@
       "COATDRS": "Coatbridge (DRS)",
       "COATBDG": "Coatbridge",
       "DITTGBR": "Ditton O'Connor GBRf",
+      "DITTONGBRF": "Ditton O'Connor GBRf",
       "FLXSSGB": "Felixstowe South Sidings GBRf",
       "GRSTNFT": "Garston F.L.T.",
+      "GARSTONFREIGHTLINERTERMINAL": "Garston F.L.T.",
       "THMSFLI": "Thamesport F.L.T.",
+      "THAMESPORTFREIGHTLINERTERMINAL": "Thamesport F.L.T.",
       "BLCKPLN": "Blackpool North",
       "OXLEYCS": "Oxley C.S.",
       "DVTYDRS": "Daventry DRS",
@@ -3248,6 +3352,19 @@
       "RUNCFLH": "Runcorn Folly Lane (Flhh)",
       "FOLLYLN": "Folly Lane ICI Sidings",
       "MOSEPDF": "Mossend Pd Stirling (Flhh)",
+      "GRNGFLT": "Grangemouth F.L.T.",
+      "TRFDEUT": "Trafford Euro Terminal",
+      "TUNSTDS": "Tunstead Sidings",
+      "PEAKRMC": "Peak Forest R.M.C.",
+      "DALAMFD": "Dallam Freight Depot",
+      "DITTAHF": "Ditton A.H.F.",
+      "CARLNY": "Carlisle N.Y.",
+      "CARLISLENY": "Carlisle N.Y.",
+      "LONDONGATEWAYFREIGHTLINER": "London Gateway Freightliner",
+      "LONDONGATEWAYPORTLINE2": "London Gateway Port Line 2",
+      "CREWEBASFORDHALLSSM": "Crewe Basford Hall S.S.M.",
+      "BASFORDHALLYARDFL": "Basford Hall Yard (Fl)",
+      "COATBRIDGEDOWNREFUGESIDING": "Coatbridge (DRS)",
 
       // Common freight terminals / yards / depots that may appear as TIPLOCs.
       "CREWEMD": "Crewe Electric Maintenance Depot",
@@ -3418,7 +3535,7 @@
               stp_indicator
             )
           `)
-          .eq("tiploc", "ACBG")
+          .in("tiploc", stationTiplocList())
           .limit(5000);
 
         if(error) throw error;
@@ -3458,7 +3575,7 @@
               stp_indicator
             )
           `)
-          .eq("tiploc", "ACBG")
+          .in("tiploc", stationTiplocList())
           .limit(2000);
 
         if(error) throw error;
@@ -3526,6 +3643,113 @@
     }
 
 
+    function stationTiplocList(){
+      return Array.isArray(window.STATION_TIPLOCS) ? window.STATION_TIPLOCS : (typeof STATION_TIPLOCS !== "undefined" ? STATION_TIPLOCS : ["ACBG", "ACTNBDG", "ACB"]);
+    }
+
+    function movementRouteMissing(item){
+      const origin = String(item?.origin || "").trim();
+      const destination = String(item?.destination || "").trim();
+      const bad = value => !value || value === "Unknown" || value === "Route pending" || value === "—";
+      return bad(origin) || bad(destination);
+    }
+
+    async function fetchScheduleRowsForRouteEnrichment(selectedDate){
+      const tiplocs = stationTiplocList();
+      const rows = [];
+
+      async function collect(table, relation, sourceLabel, limit){
+        try {
+          const { data, error } = await supabaseClient
+            .from(table)
+            .select(`
+              pass_time,
+              departure,
+              arrival,
+              platform,
+              signalling_id,
+              ${relation} (
+                signalling_id,
+                origin_tiploc,
+                origin_name,
+                destination_tiploc,
+                destination_name,
+                schedule_start_date,
+                schedule_end_date,
+                days_runs,
+                stp_indicator
+              )
+            `)
+            .in("tiploc", tiplocs)
+            .limit(limit);
+
+          if(error) throw error;
+
+          (data || []).forEach(row => {
+            const svcRaw = row[relation];
+            const svc = Array.isArray(svcRaw) ? svcRaw[0] : svcRaw;
+            if(!svc || !activeScheduleForStpSync(svc, selectedDate)) return;
+
+            const headcode = String(row.signalling_id || svc.signalling_id || "").trim().toUpperCase();
+            if(!/^[0-9][A-Z][0-9]{2}$/.test(headcode)) return;
+
+            const bookedTime = row.pass_time || row.departure || row.arrival || "";
+            const mins = parseScheduleTimeToMinutes(bookedTime);
+            if(mins === null) return;
+
+            rows.push({
+              headcode,
+              bookedTime,
+              bookedSeconds: mins * 60,
+              origin: displayLocationName(svc.origin_name || svc.origin_tiploc),
+              destination: displayLocationName(svc.destination_name || svc.destination_tiploc),
+              sourceLabel
+            });
+          });
+        } catch(err) {
+          console.warn(`Route enrichment ${table} lookup failed:`, err);
+        }
+      }
+
+      await collect("schedule_locations", "schedule_services", "Booked", 6000);
+      await collect("vstp_locations", "vstp_services", "VSTP", 2500);
+      return rows;
+    }
+
+    async function enrichMovementRoutesFromSchedules(selectedDate){
+      if(!Array.isArray(movements) || !selectedDate) return;
+
+      const missing = movements.filter(item => item.date === selectedDate && movementRouteMissing(item));
+      if(!missing.length) return;
+
+      const scheduleRows = await fetchScheduleRowsForRouteEnrichment(selectedDate);
+      if(!scheduleRows.length) return;
+
+      missing.forEach(item => {
+        const headcode = String(item.trainId || "").trim().toUpperCase();
+        const movementSeconds = parseScheduleTimeToMinutes(item.time) == null ? null : parseScheduleTimeToMinutes(item.time) * 60;
+        if(!headcode || movementSeconds === null) return;
+
+        const match = scheduleRows
+          .filter(row => row.headcode === headcode)
+          .map(row => ({
+            row,
+            diff: Math.min(
+              Math.abs(row.bookedSeconds - movementSeconds),
+              Math.abs((row.bookedSeconds + 86400) - movementSeconds),
+              Math.abs(row.bookedSeconds - (movementSeconds + 86400))
+            )
+          }))
+          .filter(x => x.diff <= 6 * 60 * 60)
+          .sort((a,b) => a.diff - b.diff)[0]?.row;
+
+        if(!match) return;
+        if(!usefulText(item.origin) && usefulText(match.origin)) item.origin = match.origin;
+        if(!usefulText(item.destination) && usefulText(match.destination)) item.destination = match.destination;
+      });
+    }
+
+
     async function loadMovements(){
       const {data,error} = await supabaseClient
         .from("station_movements")
@@ -3553,6 +3777,7 @@
       const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       await loadLocoAllocations(selectedDate);
       await loadScheduleTypeOverrides(selectedDate);
+      await enrichMovementRoutesFromSchedules(selectedDate);
       renderAll();
       loadNextScheduledService();
     loadTdApproachStatus();
