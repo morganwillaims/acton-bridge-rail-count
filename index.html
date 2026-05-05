@@ -2673,7 +2673,7 @@
 
       try {
         const [bookedRows, vstpRows, capturedRows] = await Promise.all([
-          fetchScheduleRows("schedule_locations", "schedule_services", "Booked", 8000),
+          fetchScheduleRows("schedule_locations", "schedule_services", "Booked", 1200),
           fetchScheduleRows("vstp_locations", "vstp_services", "VSTP", 3000),
           fetchCapturedRows()
         ]);
@@ -3717,12 +3717,24 @@
       lastLoadedAt = now24h();
       setStatus(`Connected. ${movements.length} Acton Bridge movement${movements.length === 1 ? "" : "s"} loaded.`, true);
       const selectedDate = document.getElementById("dateInput")?.value || todayIso();
-      await loadLocoAllocations(selectedDate);
-      await loadScheduleTypeOverrides(selectedDate);
-      await enrichUnknownMovementRoutes(selectedDate);
+
+      // Fast first paint: show the captured TRUST table immediately.
+      // Slow extras such as loco allocations, STP overrides and route enrichment run after,
+      // so the page never sits on "Loading Acton Bridge movement data..." for ages.
       renderAll();
       loadNextScheduledService();
-    loadTdApproachStatus();
+      loadTdApproachStatus();
+
+      Promise.allSettled([
+        loadLocoAllocations(selectedDate),
+        loadScheduleTypeOverrides(selectedDate),
+        enrichUnknownMovementRoutes(selectedDate)
+      ]).then(() => {
+        renderAll();
+        loadNextScheduledService();
+      }).catch(err => {
+        console.warn("Background enrichment failed:", err);
+      });
     }
 
     function getDailyMovements(date){ return movements.filter(item=>item.date===date); }
