@@ -1832,8 +1832,8 @@
         trainType: normaliseTrainType(row.train_type || "other", row.train_id),
         trainId: row.train_id || "",
         platform: row.platform || "",
-        origin: displayLocationName(row.origin),
-        destination: displayLocationName(row.destination),
+        origin: displayLocationName(typeof applyExtraTiplocDisplayNames === "function" ? applyExtraTiplocDisplayNames(row.origin) : row.origin),
+        destination: displayLocationName(typeof applyExtraTiplocDisplayNames === "function" ? applyExtraTiplocDisplayNames(row.destination) : row.destination),
         toc: row.toc || "",
         status: row.status || "Passed",
         source: row.source || "Network Rail",
@@ -2222,6 +2222,24 @@
       box.innerHTML = `<div class="next-service-widget"><div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div><div class="next-service-body"><span class="next-service-line"><span class="next-service-label">Status</span><span class="next-service-main">Checking live services...</span></span></div></div>`;
 
       const LOCATION_MAP = {
+        COATFLT:"Coatbridge F.L.T.",
+        COATBDG:"Coatbridge",
+        DITTGBR:"Ditton GBRf",
+        FLXSSGB:"Felixstowe South Sidings GBRf",
+        GRSTNFT:"Garston Freightliner Terminal",
+        THMSFLI:"Thamesport Freightliner Terminal",
+        BLCKPLN:"Blackpool North",
+        OXLEYCS:"Oxley C.S.",
+        DVTYDRS:"Daventry DRS",
+        DAVDRS:"Daventry DRS",
+        DVTYIRFT:"Daventry Int Recep Term",
+        DIRFTDRS:"Daventry DRS",
+        BASFHLY:"Basford Hall Yard (Fl)",
+        BASFORD:"Basford Hall Yard",
+        BASFHFL:"Basford Hall Yard (Fl)",
+        RUNCFLH:"Runcorn Folly Lane (Flhh)",
+        FOLLYLN:"Folly Lane ICI Sidings",
+
         ACBG:"Acton Bridge",
         SLATFDD:"Slateford Depot",
         DRBYRTC:"Derby R.T.C. (Network Rail)",
@@ -2566,23 +2584,57 @@
         const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
         const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
 
-        // Freight must NOT use booked paths. Many freight schedules are Q-path/as-required and can ghost.
-        // Use only movements that are actually active/seen:
-        // - TD live mapped berth
-        // - captured TRUST at/near Acton Bridge
-        // VSTP is still only a schedule, so it is excluded from the freight "next" card unless captured by TRUST/TD.
-        const activeFreightOnly = dedupeByHeadcodeTime(tdRows.concat(capturedRows));
+        function isReliableFreightSchedule(item){
+          if(!item || item.type !== "freight") return false;
+
+          // TD/TRUST are real live/captured evidence.
+          if(item.sourceLabel === "TD" || item.sourceLabel === "TRUST") return true;
+
+          // VSTP is a short-term plan and should be shown.
+          if(item.sourceLabel === "VSTP") return true;
+
+          const svc = item.service || {};
+          const stp = normaliseStpType(svc.stp_indicator || item.stpType || "");
+          const daysRuns = String(svc.days_runs || "").toUpperCase();
+          const noteText = [
+            item.headcode,
+            item.origin,
+            item.destination,
+            svc.stp_indicator,
+            svc.train_status,
+            svc.runs_as_required,
+            svc.category,
+            svc.service_code
+          ].join(" ").toUpperCase();
+
+          // Reject Q paths / as-required markers if the collector has captured them.
+          if(noteText.includes("(Q)") || noteText.includes(" Q ") || noteText.includes("AS REQUIRED") || noteText.includes("RUNS AS REQUIRED")) return false;
+          if(daysRuns.includes("Q")) return false;
+
+          // Normal Network Rail schedule types are acceptable for the "next freight" card.
+          return ["WTT", "STP", "VAR", "VSTP"].includes(stp) || item.sourceLabel === "Booked";
+        }
+
+        const reliableFreightSchedule = dedupeByHeadcodeTime(
+          bookedClean.concat(vstpClean).concat(tdRows).concat(capturedRows)
+        ).filter(isReliableFreightSchedule);
 
         const nextPassenger = chooseNext(allScheduleForPassenger, "passenger", { allowBookedOnly:true });
 
-        const nextFreight = chooseNext(activeFreightOnly, "freight", {
-          allowBookedOnly:false,
-          overdueGraceSeconds:2 * 60
+        // Freight now shows the next reliable scheduled/activated freight.
+        // Example: WTT 4S43 Daventry DRS to Coatbridge should appear before it passes.
+        const nextFreight = chooseNext(reliableFreightSchedule, "freight", {
+          allowBookedOnly:true,
+          overdueGraceSeconds:10 * 60
         });
 
+        const activeFreightOnly = dedupeByHeadcodeTime(tdRows.concat(capturedRows));
         const nextLightEngine = chooseNext(activeFreightOnly, "light_engine", {
           allowBookedOnly:false,
           overdueGraceSeconds:2 * 60
+        }) || chooseNext(bookedClean, "light_engine", {
+          allowBookedOnly:true,
+          overdueGraceSeconds:10 * 60
         });
 
         const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
@@ -2651,10 +2703,10 @@
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No activated freight movement currently visible near Acton Bridge") +
+          formatNext("Freight", nextFreight, "freight", "No reliable freight working currently listed for the rest of this date") +
           formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Freight and light-engine cards use activated/live evidence only: TD mapped berths or captured TRUST. Booked freight paths are hidden to avoid ghost workings.</span>` +
+          `<span class="next-service-warning">Freight shows the next reliable WTT/STP/VAR/VSTP or activated movement. Obvious Q/as-required ghost paths are filtered where the data flags them.</span>` +
           `</div></div>`;
 
       } catch(err) {
@@ -3171,6 +3223,23 @@
 
 
     const EXTRA_TIPLOC_DISPLAY_NAMES = {
+      "COATFLT": "Coatbridge F.L.T.",
+      "COATDRS": "Coatbridge (DRS)",
+      "COATBDG": "Coatbridge",
+      "DITTGBR": "Ditton GBRf",
+      "FLXSSGB": "Felixstowe South Sidings GBRf",
+      "GRSTNFT": "Garston Freightliner Terminal",
+      "THMSFLI": "Thamesport Freightliner Terminal",
+      "BLCKPLN": "Blackpool North",
+      "OXLEYCS": "Oxley C.S.",
+      "DVTYDRS": "Daventry DRS",
+      "DAVDRS": "Daventry DRS",
+      "DIRFTDRS": "Daventry DRS",
+      "BASFHLY": "Basford Hall Yard (Fl)",
+      "BASFORD": "Basford Hall Yard",
+      "BASFHFL": "Basford Hall Yard (Fl)",
+      "RUNCFLH": "Runcorn Folly Lane (Flhh)",
+      "FOLLYLN": "Folly Lane ICI Sidings",
       "MOSEPDF": "Mossend Pd Stirling (Flhh)",
 
       // Common freight terminals / yards / depots that may appear as TIPLOCs.
