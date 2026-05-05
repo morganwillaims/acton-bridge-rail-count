@@ -1451,6 +1451,49 @@
     }
   </style>
 
+
+  <style id="mobile-compact-filter-bar">
+    @media (max-width: 700px) {
+      .collector-filter-bar-mobile,
+      .quick-filters,
+      .collector-status-bar,
+      section:has(.quick-filter-btn) {
+        transition: padding .2s ease, margin .2s ease, transform .2s ease;
+      }
+
+      body.mobile-compact-scroll .collector-status,
+      body.mobile-compact-scroll #collectorStatus,
+      body.mobile-compact-scroll .collector-status-bar {
+        display: none !important;
+      }
+
+      body.mobile-compact-scroll .quick-filters,
+      body.mobile-compact-scroll section:has(.quick-filter-btn) {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        padding: 6px 8px !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        box-shadow: 0 2px 8px rgba(15,23,42,.18);
+      }
+
+      body.mobile-compact-scroll .quick-filter-btn {
+        padding: 6px 10px !important;
+        font-size: .78rem !important;
+        line-height: 1 !important;
+        border-radius: 999px !important;
+      }
+
+      body.mobile-compact-scroll .quick-filters {
+        gap: 6px !important;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+  </style>
+
 </head>
 <body>
   <div class="page">
@@ -3641,6 +3684,17 @@
       renderTable();
       renderArchive();
     }
+
+
+    function updateMobileCompactScrollBar(){
+      const compact = window.matchMedia("(max-width: 700px)").matches && window.scrollY > 180;
+      document.body.classList.toggle("mobile-compact-scroll", compact);
+    }
+
+    window.addEventListener("scroll", updateMobileCompactScrollBar, { passive: true });
+    window.addEventListener("resize", updateMobileCompactScrollBar);
+    updateMobileCompactScrollBar();
+
 
     function updateQuickFilterCompact(){
       const filters = document.querySelector(".quick-filters");
