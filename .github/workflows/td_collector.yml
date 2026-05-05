@@ -2,17 +2,18 @@ name: Acton Bridge TD Collector
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # Run often, but short. This keeps td_current_berths fresh without a long 55-minute loop.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 concurrency:
   group: acton-bridge-td-collector
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   td:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 8
 
     steps:
       - name: Check out repo
@@ -33,5 +34,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TD_AREA_FILTER: "CE"
-          LISTEN_SECONDS: "3300"
+          LISTEN_SECONDS: "240"
         run: python td_collector.py
