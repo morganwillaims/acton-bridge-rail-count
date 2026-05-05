@@ -2383,6 +2383,7 @@
         if(source === "TD") return 0;
         if(source === "VSTP") return 1;
         if(source === "TRUST") return 2;
+        if(source === "Booked+TRUST") return 2;
         if(source === "Booked") return 3;
         return 4;
       }
@@ -2476,7 +2477,7 @@
         try {
           const result = await supabaseClient
             .from("station_movements")
-            .select("running_date,actual_time,planned_time,train_id,train_type,origin,destination,platform,toc,source")
+            .select("running_date,actual_time,planned_time,train_id,train_type,origin,destination,platform,toc,source,status")
             .eq("station_crs", "ACB")
             .eq("running_date", selectedDate)
             .eq("source", "Network Rail TRUST")
@@ -2581,63 +2582,8 @@
         const vstpClean = dedupeByHeadcodeTime(vstpRows)
           .filter(item => !isCapturedAlready(item, capturedToday));
 
-        const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
+                const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
         const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
-
-        function isReliableFreightSchedule(item){
-          if(!item || item.type !== "freight") return false;
-
-          // TD/TRUST are real live/captured evidence.
-          if(item.sourceLabel === "TD" || item.sourceLabel === "TRUST") return true;
-
-          // VSTP is a short-term plan and should be shown.
-          if(item.sourceLabel === "VSTP") return true;
-
-          const svc = item.service || {};
-          const stp = normaliseStpType(svc.stp_indicator || item.stpType || "");
-          const daysRuns = String(svc.days_runs || "").toUpperCase();
-          const noteText = [
-            item.headcode,
-            item.origin,
-            item.destination,
-            svc.stp_indicator,
-            svc.train_status,
-            svc.runs_as_required,
-            svc.category,
-            svc.service_code
-          ].join(" ").toUpperCase();
-
-          // Reject Q paths / as-required markers if the collector has captured them.
-          if(noteText.includes("(Q)") || noteText.includes(" Q ") || noteText.includes("AS REQUIRED") || noteText.includes("RUNS AS REQUIRED")) return false;
-          if(daysRuns.includes("Q")) return false;
-
-          // Normal Network Rail schedule types are acceptable for the "next freight" card.
-          return ["WTT", "STP", "VAR", "VSTP"].includes(stp) || item.sourceLabel === "Booked";
-        }
-
-        const reliableFreightSchedule = dedupeByHeadcodeTime(
-          bookedClean.concat(vstpClean).concat(tdRows).concat(capturedRows)
-        ).filter(isReliableFreightSchedule);
-
-        const nextPassenger = chooseNext(allScheduleForPassenger, "passenger", { allowBookedOnly:true });
-
-        // Freight now shows the next reliable scheduled/activated freight.
-        // Example: WTT 4S43 Daventry DRS to Coatbridge should appear before it passes.
-        const nextFreight = chooseNext(reliableFreightSchedule, "freight", {
-          allowBookedOnly:true,
-          overdueGraceSeconds:10 * 60
-        });
-
-        const activeFreightOnly = dedupeByHeadcodeTime(tdRows.concat(capturedRows));
-        const nextLightEngine = chooseNext(activeFreightOnly, "light_engine", {
-          allowBookedOnly:false,
-          overdueGraceSeconds:2 * 60
-        }) || chooseNext(bookedClean, "light_engine", {
-          allowBookedOnly:true,
-          overdueGraceSeconds:10 * 60
-        });
-
-        const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
 
         function findRelatedBookedRoute(item){
           if(!item) return null;
@@ -2647,6 +2593,62 @@
             .filter(row => row.bookedSeconds !== null && itemSeconds !== null && Math.abs(row.bookedSeconds - itemSeconds) <= 4 * 60 * 60)
             .sort((a,b) => Math.abs(a.bookedSeconds - itemSeconds) - Math.abs(b.bookedSeconds - itemSeconds))[0] || null;
         }
+
+        function findTrustForBooked(item){
+          if(!item) return null;
+          const itemSeconds = item.bookedSeconds;
+          return capturedRows
+            .filter(row => String(row.headcode || "").toUpperCase() === String(item.headcode || "").toUpperCase())
+            .filter(row => row.bookedSeconds !== null && itemSeconds !== null && Math.abs(row.bookedSeconds - itemSeconds) <= 4 * 60 * 60)
+            .sort((a,b) => Math.abs(a.bookedSeconds - itemSeconds) - Math.abs(b.bookedSeconds - itemSeconds))[0] || null;
+        }
+
+        function attachTrustDelay(bookedItem){
+          if(!bookedItem) return null;
+          const trust = findTrustForBooked(bookedItem);
+          if(!trust) return bookedItem;
+
+          return {
+            ...bookedItem,
+            actualTime: trust.actualTime || trust.time || "",
+            actualSeconds: trust.actualSeconds ?? trust.bookedSeconds,
+            delayMinutes: trust.delayMinutes,
+            trustStatus: trust.status || "",
+            sourceLabel: "Booked+TRUST"
+          };
+        }
+
+        const nextPassenger = attachTrustDelay(
+          chooseNext(allScheduleForPassenger, "passenger", {
+            allowBookedOnly:true,
+            overdueGraceSeconds:5 * 60,
+            maxAheadSeconds:90 * 60
+          })
+        );
+
+        // Freight next expected MUST be TRUST-only. Do not use booked/VSTP-only freight,
+        // because those create ghost/as-required paths.
+        const trustFreightOnly = dedupeByHeadcodeTime(capturedRows)
+          .filter(item => item.type === "freight");
+
+        const nextFreight = chooseNext(trustFreightOnly, "freight", {
+          allowBookedOnly:false,
+          overdueGraceSeconds:5 * 60,
+          maxAheadSeconds:90 * 60
+        });
+
+        const trustLightEngineOnly = dedupeByHeadcodeTime(capturedRows)
+          .filter(item => item.type === "light_engine");
+
+        const nextLightEngine = chooseNext(trustLightEngineOnly, "light_engine", {
+          allowBookedOnly:false,
+          overdueGraceSeconds:5 * 60,
+          maxAheadSeconds:90 * 60
+        });
+
+        const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
+
+
 
         function formatNext(label, item, cssClass, emptyText){
           if(!item){
@@ -2658,7 +2660,12 @@
             `;
           }
 
-          const source = item.sourceLabel === "Booked" ? "booked" : item.sourceLabel === "TD" ? "TD live" : item.sourceLabel === "VSTP" ? "confirmed VSTP" : "captured TRUST";
+          const source =
+            item.sourceLabel === "Booked" ? "booked" :
+            item.sourceLabel === "Booked+TRUST" ? "running TRUST" :
+            item.sourceLabel === "TD" ? "TD live" :
+            item.sourceLabel === "VSTP" ? "confirmed VSTP" :
+            "running TRUST";
 
           let timingText = source;
           if(item.delayMinutes !== null && item.delayMinutes !== undefined){
@@ -2703,10 +2710,10 @@
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No reliable freight working currently listed for the rest of this date") +
+          formatNext("Freight", nextFreight, "freight", "No TRUST-activated freight currently approaching Acton Bridge") +
           formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Freight shows the next reliable WTT/STP/VAR/VSTP or activated movement. Obvious Q/as-required ghost paths are filtered where the data flags them.</span>` +
+          `<span class="next-service-warning">Passenger shows the next scheduled passenger and adds TRUST timing when available. Freight only shows TRUST-activated/captured freight, so booked/VSTP/Q ghost paths are hidden.</span>` +
           `</div></div>`;
 
       } catch(err) {
