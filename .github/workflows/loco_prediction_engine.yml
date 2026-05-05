@@ -3,18 +3,16 @@ name: Acton Bridge Loco Prediction Engine
 on:
   workflow_dispatch:
   schedule:
-    # Restart roughly every 6 hours.
-    # Each run loops for 5h55m, leaving about a 5-minute gap before the next scheduled run.
-    - cron: "0 */6 * * *"
+    - cron: "15 */2 * * *"
 
 concurrency:
-  group: acton-bridge-loco-predictions-loop
+  group: acton-bridge-loco-predictions
   cancel-in-progress: true
 
 jobs:
   predict-locos:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 10
 
     steps:
       - name: Check out repo
@@ -28,68 +26,12 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run loco prediction engine loop
+      - name: Run loco prediction engine
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-          # Predict for today + next 3 days
           LOCO_PREDICT_DAYS_AHEAD: "3"
-
-          # Look back over recent approved sightings
           LOCO_PREDICT_LOOKBACK_DAYS: "21"
-
-          # At least 2 sightings required before prediction
           LOCO_PREDICT_MIN_EVIDENCE: "2"
-
-          # Top loco must account for at least 60% of known sightings
           LOCO_PREDICT_MIN_TOP_SHARE: "0.60"
-
-          # Run duration: 5 hours 55 minutes = 21,300 seconds
-          LOOP_SECONDS: "21300"
-
-          # How often to refresh predictions during the run.
-          # 300 seconds = every 5 minutes.
-          LOOP_SLEEP_SECONDS: "300"
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Starting loco prediction loop"
-          echo "Run window: ${LOOP_SECONDS}s"
-          echo "Sleep between prediction refreshes: ${LOOP_SLEEP_SECONDS}s"
-
-          start_ts=$(date +%s)
-          end_ts=$((start_ts + LOOP_SECONDS))
-          run_number=1
-
-          while [ "$(date +%s)" -lt "$end_ts" ]; do
-            now="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-            echo ""
-            echo "============================================================"
-            echo "Prediction refresh #${run_number} at ${now}"
-            echo "============================================================"
-
-            python loco_prediction_runner.py
-
-            run_number=$((run_number + 1))
-
-            now_ts=$(date +%s)
-            remaining=$((end_ts - now_ts))
-
-            if [ "$remaining" -le 0 ]; then
-              break
-            fi
-
-            if [ "$remaining" -lt "$LOOP_SLEEP_SECONDS" ]; then
-              echo "Only ${remaining}s remaining, sleeping until run window ends."
-              sleep "$remaining"
-            else
-              echo "Sleeping ${LOOP_SLEEP_SECONDS}s before next prediction refresh."
-              sleep "$LOOP_SLEEP_SECONDS"
-            fi
-          done
-
-          echo ""
-          echo "Loco prediction loop finished after 5h55m window."
-          echo "Next scheduled workflow should start roughly 5 minutes later."
+        run: python loco_prediction_runner.py
