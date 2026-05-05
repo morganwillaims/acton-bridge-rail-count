@@ -2383,12 +2383,19 @@
 
       function applyRouteFallback(item){
         if(!item) return item;
-        const fallback = HEADCODE_ROUTE_FALLBACKS[normaliseHeadcode(item.headcode)];
+        const headcode = normaliseHeadcode(item.headcode || item.trainId || item.train_id);
+        const fallback = HEADCODE_ROUTE_FALLBACKS[headcode];
         if(!fallback) return item;
+
+        // Passenger schedule rows can occasionally inherit freight-yard TIPLOC origins
+        // such as MOSEDNY / Mossend Down Yard. For known Avanti passenger headcodes,
+        // force the public passenger origin/destination rather than showing a freight-yard route.
+        const forceKnownPassengerRoute = ["1M05", "9M84"].includes(headcode);
+
         return {
           ...item,
-          origin: isRoutePending(item.origin) ? fallback.origin : item.origin,
-          destination: isRoutePending(item.destination) ? fallback.destination : item.destination
+          origin: forceKnownPassengerRoute || isRoutePending(item.origin) ? fallback.origin : item.origin,
+          destination: forceKnownPassengerRoute || isRoutePending(item.destination) ? fallback.destination : item.destination
         };
       }
 
@@ -2423,14 +2430,21 @@
 
       async function fetchScheduleRows(tableName, relationName, sourceLabel, limit){
         try {
-          const result = await supabaseClient
+          // Important: do not pull an arbitrary first 8,000 historic schedule rows.
+          // Restrict to schedules active on the selected date, otherwise the next freight
+          // can be missed even when the booked path and live TD headcode both exist.
+          let query = supabaseClient
             .from(tableName)
             .select(`
               *,
               ${relationName} (*)
             `)
             .in("tiploc", ACTON_BRIDGE_TIPLOCS)
+            .lte("schedule_start_date", selectedDate)
+            .gte("schedule_end_date", selectedDate)
             .limit(limit);
+
+          const result = await query;
 
           if(result.error) throw result.error;
           return (result.data || []).map(row => mapScheduleRow(row, relationName, sourceLabel)).filter(Boolean);
@@ -2685,12 +2699,27 @@
           .filter(item => liveHeadcodes.has(normaliseHeadcode(item.headcode)))
           .map(item => ({ ...item, sourceLabel: "Live+Schedule" }));
 
-        const nextFreight = chooseNext(liveFreightSchedule, "freight", {
+        let nextFreight = chooseNext(liveFreightSchedule, "freight", {
           // Freight can be delayed or held. If it is live in fresh TD but not yet TRUST-captured
           // at Acton Bridge, keep it visible for up to 60 minutes past booked ACB time.
           overdueGraceSeconds: 60 * 60,
           maxAheadSeconds: null
         });
+
+        // Safety fallback: if a live TD freight headcode exists but the de-dup/captured filter
+        // accidentally removed its schedule row, try the active schedule pool directly.
+        // This still does NOT show booked-only freight: the headcode must be fresh in TD/TRUST.
+        if(!nextFreight){
+          const liveFreightDirect = allSchedule
+            .filter(item => item.type === "freight")
+            .filter(item => liveHeadcodes.has(normaliseHeadcode(item.headcode)))
+            .map(item => ({ ...item, sourceLabel: "Live+Schedule" }));
+
+          nextFreight = chooseNext(liveFreightDirect, "freight", {
+            overdueGraceSeconds: 60 * 60,
+            maxAheadSeconds: null
+          });
+        }
 
         const liveLightEngineSchedule = notYetCaptured
           .filter(item => item.type === "light_engine")
