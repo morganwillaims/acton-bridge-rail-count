@@ -1825,8 +1825,28 @@
       `;
     }
 
+
+    function applyKnownMovementRouteFixes(item){
+      const headcode = String(item?.trainId || item?.train_id || item?.headcode || "").toUpperCase().trim();
+      const routeFixes = {
+        "0Z66": { origin: "Basford Hall Yard (Fl)", destination: "Carlisle N.Y." },
+        "0E75": { origin: "Basford Hall Yard (Fl)", destination: "Doncaster Down Decoy GBRf" }
+      };
+      const fix = routeFixes[headcode];
+      if(!fix) return item;
+
+      const isBadRoute = (value) => {
+        const raw = String(value || "").trim();
+        return !raw || /^(unknown|route pending|null|undefined|—|-)$/i.test(raw) || /^\d{4,}$/.test(raw);
+      };
+
+      if(isBadRoute(item.origin)) item.origin = fix.origin;
+      if(isBadRoute(item.destination)) item.destination = fix.destination;
+      return item;
+    }
+
     function rowToMovement(row){
-      return {
+      const item = {
         id: row.id,
         date: row.running_date,
         time: row.actual_time || row.planned_time || "--:--",
@@ -1840,6 +1860,7 @@
         source: row.source || "Network Rail",
         stpType: normaliseStpType(row.stp || row.stp_indicator || row.stp_type || row.schedule_type || row.scheduleType || row.cif_stp_indicator || row.CIF_stp_indicator || row.atoc_stp || "")
       };
+      return applyKnownMovementRouteFixes(item);
     }
 
     function minutesFromTime(value){
@@ -2249,10 +2270,24 @@
         DALAMFD:"Dallam Freight Depot",
         DITTAHF:"Ditton A.H.F.",
         CARLNY:"Carlisle N.Y.",
+        CARLILY:"Carlisle N.Y.",
         CARLISLEYARD:"Carlisle Yard",
         CREWE:"Crewe",
+        CREWBHM:"Basford Hall Yard (Fl)",
         CREWBHJ:"Crewe Basford Hall",
         CWBHFL:"Crewe Basford Hall",
+        DITTFLR:"Ditton F.L.R.",
+        MOSEDNY:"Mossend Down Yard",
+        DONCDDG:"Doncaster Decoy GBRf",
+        RAVNHDS:"Ravenhead Sidings",
+        LNGPLRC:"Longport R.C.",
+        SOTDWGB:"Southampton Western Docks GBRf",
+        FLXSNFL:"Felixstowe North F.L.T.",
+        CKHLCSD:"Corkerhill C.S.M.D.",
+        WLVRTCS:"Wolverton Centre Sdgs",
+        IVRNESS:"Inverness",
+        LVRPGBF:"Liverpool Biomass Terminal",
+        DRAXGBR:"Drax Power Station",
         GLGC:"Glasgow Central",
         GLASGOWCENTRAL:"Glasgow Central",
         EUS:"London Euston",
@@ -2478,7 +2513,8 @@
           if(options.areaCE) query = query.eq("area_id", "CE");
           if(options.dateColumn) query = query.eq(options.dateColumn, selectedDate);
           if(options.sinceColumn){
-            const sinceIso = new Date(Date.now() - 240 * 60 * 1000).toISOString();
+            const sinceMinutes = Number(options.sinceMinutes || 60);
+            const sinceIso = new Date(Date.now() - sinceMinutes * 60 * 1000).toISOString();
             query = query.gte(options.sinceColumn, sinceIso);
           }
           query = query.limit(options.limit || 1000);
@@ -2496,8 +2532,8 @@
 
       async function fetchLiveHeadcodes(capturedRows){
         const sets = await Promise.all([
-          fetchHeadcodesFromTable("td_current_berths", { areaCE:true, limit:2000 }),
-          fetchHeadcodesFromTable("td_berth_events", { areaCE:true, sinceColumn:"event_ts", limit:3000 }),
+          fetchHeadcodesFromTable("td_current_berths", { areaCE:true, sinceColumn:"updated_at", sinceMinutes:30, limit:2000 }),
+          fetchHeadcodesFromTable("td_berth_events", { areaCE:true, sinceColumn:"event_ts", sinceMinutes:60, limit:3000 }),
           fetchHeadcodesFromTable("trust_activated_services", { dateColumn:"running_date", limit:1000 }),
           fetchHeadcodesFromTable("trust_live_services", { dateColumn:"running_date", limit:1000 }),
           fetchHeadcodesFromTable("activated_services", { dateColumn:"running_date", limit:1000 }),
@@ -2650,7 +2686,9 @@
           .map(item => ({ ...item, sourceLabel: "Live+Schedule" }));
 
         const nextFreight = chooseNext(liveFreightSchedule, "freight", {
-          overdueGraceSeconds: 5 * 60,
+          // Freight can be delayed or held. If it is live in fresh TD but not yet TRUST-captured
+          // at Acton Bridge, keep it visible for up to 60 minutes past booked ACB time.
+          overdueGraceSeconds: 60 * 60,
           maxAheadSeconds: null
         });
 
@@ -2674,7 +2712,7 @@
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
           formatNext("Passenger", nextPassenger, "passenger", "No passenger service found for the rest of today") +
-          formatNext("Freight", nextFreight, "freight", "No TRUST/TD-activated freight currently approaching Acton Bridge") +
+          formatNext("Freight", nextFreight, "freight", "No fresh TD/TRUST-activated freight currently approaching Acton Bridge") +
           formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
           `<span class="next-service-warning">Passenger shows the next booked passenger through Acton Bridge and adds TRUST timing when available. Freight shows the next booked Acton Bridge freight only when the same headcode is live/activated in TD/TRUST data, so ghost freight paths stay hidden.</span>` +
@@ -3282,9 +3320,9 @@
       "HEALEY": "Healey Mills Yard",
       "TYNE": "Tyne Yard",
       "MILLERH": "Millerhill Yard",
-      "CARLILY": "Carlisle Yard",
+      "CARLILY": "Carlisle N.Y.",
       "CREWBH": "Crewe Basford Hall",
-      "CREWBHM": "Crewe Basford Hall",
+      "CREWBHM": "Basford Hall Yard (Fl)",
       "WARRTNQ": "Warrington Arpley Yard",
       "DITTON": "Ditton Reception Sidings",
       "SEAFORTH": "Seaforth Container Terminal",
@@ -3304,6 +3342,18 @@
       "DALAMFD": "Dallam Freight Depot",
       "DITTAHF": "Ditton A.H.F.",
       "CARLNY": "Carlisle N.Y.",
+      "FLXSNFL": "Felixstowe North F.L.T.",
+      "CKHLCSD": "Corkerhill C.S.M.D.",
+      "WLVRTCS": "Wolverton Centre Sdgs",
+      "IVRNESS": "Inverness",
+      "DITTFLR": "Ditton F.L.R.",
+      "MOSEDNY": "Mossend Down Yard",
+      "DONCDDG": "Doncaster Down Decoy GBRf",
+      "RAVNHDS": "Ravenhead Sidings",
+      "LNGPLRC": "Longport R.C.",
+      "SOTDWGB": "Southampton Western Docks GBRf",
+      "LVRPGBF": "Liverpool Biomass Terminal",
+      "DRAXGBR": "Drax Power Station",
       "CASTLBR": "Castle Bromwich"
     };
 
@@ -3788,6 +3838,7 @@
       body.innerHTML = "";
 
       rows.forEach(item=>{
+        item = applyKnownMovementRouteFixes(item);
         const tr = document.createElement("tr");
         if(item.trainType === "freight") tr.classList.add("freight-row");
         if(item.trainType === "light_engine") tr.classList.add("light-engine-row");
