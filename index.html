@@ -2546,19 +2546,51 @@
             .eq("area_id", "CE")
             .not("description", "is", null);
 
+          // Also look at recent TD events. A freight may only be in a mapped berth briefly,
+          // so current berths alone can miss an activated train approaching Acton Bridge.
+          const sinceIso = new Date(Date.now() - 180 * 60 * 1000).toISOString();
+          const eventResult = await supabaseClient
+            .from("td_berth_events")
+            .select("area_id,berth,description,event_ts")
+            .eq("area_id", "CE")
+            .gte("event_ts", sinceIso)
+            .not("description", "is", null)
+            .order("event_ts", { ascending:false })
+            .limit(2000);
+
           if(mapResult.error || currentResult.error){
             console.warn("TD lookup unavailable:", mapResult.error || currentResult.error);
             return [];
           }
 
           const mapped = mapResult.data || [];
-          const current = currentResult.data || [];
+          const rows = [];
+          rows.push(...(currentResult.data || []).map(row => ({...row, seen_ts: row.updated_at, tdKind:"current"})));
+          if(!eventResult.error){
+            rows.push(...(eventResult.data || []).map(row => ({...row, seen_ts: row.event_ts, tdKind:"recent"})));
+          } else {
+            console.warn("TD recent event lookup unavailable:", eventResult.error);
+          }
 
-          return current
-            .filter(row => row.description && /^[0-9][A-Z][0-9]{2}$/.test(row.description))
-            .filter(row => mapped.some(map => map.area_id === row.area_id && map.berth === row.berth))
+          const seen = new Set();
+          return rows
+            .filter(row => row.description && /^[0-9][A-Z][0-9]{2}$/.test(String(row.description).trim()))
+            .filter(row => {
+              // Do not require the berth to be in td_berth_map here.
+              // The map is still used by the TD approach card, but the freight widget
+              // only needs evidence that the same headcode is live/recent in the CE TD feed
+              // AND booked through Acton Bridge. This fixes missing next-freight cases
+              // caused by incomplete berth mapping.
+              return String(row.area_id || "").trim().toUpperCase() === "CE";
+            })
+            .filter(row => {
+              const key = `${String(row.description).trim().toUpperCase()}|${row.berth}`;
+              if(seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            })
             .map(row => ({
-              headcode: row.description,
+              headcode: String(row.description).trim().toUpperCase(),
               type: headcodeType(row.description),
               bookedTime: "TD live",
               bookedSeconds: nowSeconds,
@@ -2567,7 +2599,8 @@
               destination: row.berth ? `berth ${row.berth}` : "mapped berth",
               toc: "",
               service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-              sourceLabel: "TD"
+              sourceLabel: "TD",
+              tdSeenAt: row.seen_ts
             }));
         } catch(err) {
           console.warn("TD lookup failed:", err);
@@ -2759,7 +2792,7 @@
           formatNext("Freight", nextFreight, "freight", "No TRUST-activated freight currently approaching Acton Bridge") +
           formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Passenger shows the next scheduled passenger and adds TRUST timing when available. Freight uses booked route/time only after live TD/TRUST evidence confirms that headcode is activated or moving, so booked/VSTP/Q ghost paths stay hidden.</span>` +
+          `<span class="next-service-warning">Passenger shows the next scheduled passenger and adds TRUST timing when available. Freight uses booked Acton Bridge route/time only after live/recent CE TD or TRUST evidence confirms that headcode is active, so booked/VSTP/Q ghost paths stay hidden.</span>` +
           `</div></div>`;
 
       } catch(err) {
@@ -3984,9 +4017,37 @@
     window.addEventListener("resize", updateQuickFilterCompact);
     updateQuickFilterCompact();
 
-    setupLocoSightingForm();
-      loadMovements();
-    loadNextScheduledService();
+    function resetToAllTrainsOnStartup(){
+      const dateInput = document.getElementById("dateInput");
+      const typeFilter = document.getElementById("typeFilter");
+      if(dateInput && !dateInput.value) dateInput.value = todayIso();
+      if(typeFilter) typeFilter.value = "all";
+      document.querySelectorAll(".quick-filter-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.filter === "all");
+      });
+    }
+
+    async function initialiseActonBridgePage(){
+      try {
+        resetToAllTrainsOnStartup();
+        setupLocoSightingForm();
+        await loadMovements();
+        resetToAllTrainsOnStartup();
+        renderAll();
+        await loadNextScheduledService();
+        await loadTdApproachStatus();
+      } catch(err) {
+        console.error("Initial page load failed:", err);
+        setStatus(`Initial page load failed: ${err.message || err}`, false);
+      }
+    }
+
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", initialiseActonBridgePage, { once:true });
+    } else {
+      initialiseActonBridgePage();
+    }
+
     setInterval(loadMovements,60000);
     setInterval(loadNextScheduledService,15000);
     setInterval(loadTdApproachStatus,15000);
