@@ -2206,7 +2206,7 @@
       const card = document.getElementById("nextServiceCard") || (box ? box.closest(".mini-card") : null);
       if(!box) return;
 
-      const selectedDate = document.getElementById("dateInput").value || todayIso();
+      const selectedDate = document.getElementById("dateInput")?.value || todayIso();
       const today = todayIso();
 
       if(selectedDate !== today){
@@ -2223,8 +2223,11 @@
       box.innerHTML = `<div class="next-service-widget"><div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div><div class="next-service-body"><span class="next-service-line"><span class="next-service-label">Status</span><span class="next-service-main">Checking live services...</span></span></div></div>`;
 
       const LOCATION_MAP = {
+        MOSEPDF:"Mossend Pd Stirling (Flhh)",
+        SLATFDD:"Slateford Depot",
+        DRBYRTC:"Derby R.T.C. (Network Rail)",
         COATFLT:"Coatbridge F.L.T.",
-        COATBDG:"Coatbridge",
+        COATDRS:"Coatbridge (DRS)",
         DITTGBR:"Ditton O'Connor GBRf",
         FLXSSGB:"Felixstowe South Sidings GBRf",
         GRSTNFT:"Garston F.L.T.",
@@ -2233,10 +2236,9 @@
         OXLEYCS:"Oxley C.S.",
         DVTYDRS:"Daventry DRS",
         DAVDRS:"Daventry DRS",
-        DVTYIRFT:"Daventry Int Recep Term",
         DIRFTDRS:"Daventry DRS",
+        DVTYIRFT:"Daventry Int Recep Term",
         BASFHLY:"Basford Hall Yard (Fl)",
-        BASFORD:"Basford Hall Yard",
         BASFHFL:"Basford Hall Yard (Fl)",
         RUNCFLH:"Runcorn Folly Lane (Flhh)",
         FOLLYLN:"Folly Lane ICI Sidings",
@@ -2247,51 +2249,74 @@
         DALAMFD:"Dallam Freight Depot",
         DITTAHF:"Ditton A.H.F.",
         CARLNY:"Carlisle N.Y.",
-
-        ACBG:"Acton Bridge",
-        SLATFDD:"Slateford Depot",
-        DRBYRTC:"Derby R.T.C. (Network Rail)",
-        ACB:"Acton Bridge",
-        CARLILY:"Carlisle L.I.P.Y.",
-        CREWBHM:"Crewe Basford Hall",
-        CREWEMD:"Crewe E.M.D.",
-        CREWECS:"Crewe C.S.",
+        CARLISLEYARD:"Carlisle Yard",
         CREWE:"Crewe",
-        LVRPLSH:"Liverpool South Parkway",
-        LVRPLSL:"Liverpool Lime Street",
-        EUSTON:"London Euston",
-        BHAMNWS:"Birmingham New Street",
+        CREWBHJ:"Crewe Basford Hall",
+        CWBHFL:"Crewe Basford Hall",
         GLGC:"Glasgow Central",
-        EDINBUR:"Edinburgh",
-        PRST:"Preston",
-        LANCSTR:"Lancaster",
-        ALERTN:"Allerton",
-        EDGHDHS:"Edge Hill Depot",
-        LVRPGBF:"Liverpool Biomass Terminal",
-        DRAXGBR:"Drax Power Station",
-        ARPLEYS:"Arpley Sidings",
-        MNTSDGS:"Mountsorrel Sdgs",
-        DIRFDR2:"Daventry DRS",
-        DIRFTFL:"Daventry Int Recep Term",
-        COATDRS:"Coatbridge Down Refuge Siding",
-        STOKMAR:"Stoke Marcroft Engineering",
-        CLITGBR:"Clitheroe Castle Cement GBRf",
-        DONCDDG:"Doncaster Down Decoy GBRf",
-        CREWPAD:"Crewe P.A.D.",
-        NTHNFHH:"Northenden R.T.S Flhh"
+        GLASGOWCENTRAL:"Glasgow Central",
+        EUS:"London Euston",
+        LONDONEUSTON:"London Euston"
       };
 
+      // Fallbacks only fill names when the database gives us Route pending.
+      // They do not make a freight train appear by themselves.
+      const HEADCODE_ROUTE_FALLBACKS = {
+        "1M05": { origin:"Glasgow Central", destination:"London Euston" },
+        "9M84": { origin:"Glasgow Central", destination:"London Euston" },
+        "6K05": { origin:"Carlisle N.Y.", destination:"Basford Hall Yard (Fl)" }
+      };
+
+      function text(value){ return String(value ?? "").trim(); }
+
+      function isRoutePending(value){
+        const raw = text(value);
+        if(!raw) return true;
+        return /^(unknown|route pending|null|undefined|name goes here|—|-|n\/a)$/i.test(raw) || /^\d{4,}$/.test(raw);
+      }
+
       function cleanRouteName(name, tiploc){
-        const raw = String(name || "").trim();
-        const code = String(tiploc || raw || "").trim().toUpperCase();
+        const raw = text(name);
+        const code = text(tiploc || raw).toUpperCase().replace(/\s+/g, "");
 
         if(LOCATION_MAP[code]) return LOCATION_MAP[code];
+        if(typeof applyExtraTiplocDisplayNames === "function"){
+          const mappedCode = applyExtraTiplocDisplayNames(code);
+          if(mappedCode && mappedCode !== code) return mappedCode;
+        }
 
-        if(raw && raw !== "Unknown" && raw !== "Route pending" && raw !== "null" && raw !== "undefined" && raw !== "NAME GOES HERE" && !/^\d{4,}$/.test(raw)){
-          return raw;
+        if(!isRoutePending(raw)){
+          const display = typeof applyExtraTiplocDisplayNames === "function" ? applyExtraTiplocDisplayNames(raw) : raw;
+          return display || raw;
         }
 
         return LOCATION_MAP[code] || "Route pending";
+      }
+
+      function routeFromPossibleFields(row, svc, side){
+        const candidates = side === "origin"
+          ? [
+              [svc?.origin_name, svc?.origin_tiploc],
+              [svc?.origin, svc?.origin_tiploc],
+              [row.origin_name, row.origin_tiploc],
+              [row.origin, row.origin_tiploc],
+              [row.from_name, row.from_tiploc],
+              [row.origin_tiploc, row.origin_tiploc]
+            ]
+          : [
+              [svc?.destination_name, svc?.destination_tiploc],
+              [svc?.destination, svc?.destination_tiploc],
+              [row.destination_name, row.destination_tiploc],
+              [row.destination, row.destination_tiploc],
+              [row.to_name, row.to_tiploc],
+              [row.destination_tiploc, row.destination_tiploc]
+            ];
+
+        for(const [name, tiploc] of candidates){
+          const cleaned = cleanRouteName(name, tiploc);
+          if(!isRoutePending(cleaned)) return cleaned;
+        }
+        return "Route pending";
       }
 
       function toSeconds(value){
@@ -2299,187 +2324,116 @@
         return mins === null ? null : mins * 60;
       }
 
-      function headcodeType(headcode){
-        const text = String(headcode || "").trim().toUpperCase();
-        if(/^0/.test(text)) return "light_engine";
-        if(/^[4678]/.test(text)) return "freight";
-        if(/^[35]/.test(text)) return "ecs";
-        if(/^[129]/.test(text)) return "passenger";
+      function activeOnDateSafe(service){
+        if(!service) return true;
+        if(typeof activeScheduleOnDate === "function") return activeScheduleOnDate(service, selectedDate);
+        return true;
+      }
+
+      function headcodeTypeSafe(headcode){
+        if(typeof headcodeType === "function") return headcodeType(headcode);
+        if(typeof scheduleTypeFromHeadcode === "function") return scheduleTypeFromHeadcode(headcode);
+        const hc = text(headcode).toUpperCase();
+        if(/^0/.test(hc)) return "light_engine";
+        if(/^[4678]/.test(hc)) return "freight";
+        if(/^[35]/.test(hc)) return "ecs";
+        if(/^[129]/.test(hc)) return "passenger";
         return "other";
       }
 
-      function mapScheduleRow(row, sourceLabel){
-        const service = Array.isArray(row.schedule_services) ? row.schedule_services[0] : row.schedule_services;
-        const vstpService = Array.isArray(row.vstp_services) ? row.vstp_services[0] : row.vstp_services;
-        const svc = service || vstpService;
+      function normaliseHeadcode(value){
+        const hc = text(value).toUpperCase();
+        return /^[0-9][A-Z][0-9]{2}$/.test(hc) ? hc : "";
+      }
 
-        const headcode = row.signalling_id || svc?.signalling_id || "Unknown";
-        const bookedTime = row.pass_time || row.departure || row.arrival;
+      function applyRouteFallback(item){
+        if(!item) return item;
+        const fallback = HEADCODE_ROUTE_FALLBACKS[normaliseHeadcode(item.headcode)];
+        if(!fallback) return item;
+        return {
+          ...item,
+          origin: isRoutePending(item.origin) ? fallback.origin : item.origin,
+          destination: isRoutePending(item.destination) ? fallback.destination : item.destination
+        };
+      }
+
+      function mapScheduleRow(row, relationName, sourceLabel){
+        const rel = row?.[relationName];
+        const svc = Array.isArray(rel) ? rel[0] : rel;
+        const headcode = normaliseHeadcode(row.signalling_id || row.headcode || row.train_id || svc?.signalling_id || svc?.headcode);
+        if(!headcode) return null;
+
+        const bookedTime = row.pass_time || row.departure || row.arrival || row.planned_time || row.time;
+        const bookedSeconds = toSeconds(bookedTime);
+        if(bookedSeconds === null) return null;
+        if(!activeOnDateSafe(svc)) return null;
+
         const item = {
           headcode,
-          type: headcodeType(headcode),
+          type: headcodeTypeSafe(headcode),
           bookedTime,
-          bookedSeconds: toSeconds(bookedTime),
+          bookedSeconds,
           platform: row.platform || "—",
-          origin: cleanRouteName(svc?.origin_name, svc?.origin_tiploc),
-          destination: cleanRouteName(svc?.destination_name, svc?.destination_tiploc),
-          toc: svc?.atoc_code || "",
-          service: svc,
+          origin: routeFromPossibleFields(row, svc, "origin"),
+          destination: routeFromPossibleFields(row, svc, "destination"),
+          toc: svc?.atoc_code || row.toc || "",
+          stp: svc?.stp_indicator || row.stp_indicator || row.stp || "",
+          service: svc || {},
           sourceLabel
         };
 
-        if(typeof applyNextServiceRouteOverride === "function"){
-          return applyNextServiceRouteOverride(item);
-        }
-
-        return item;
+        const overridden = typeof applyNextServiceRouteOverride === "function" ? applyNextServiceRouteOverride(item) : item;
+        return applyRouteFallback(overridden);
       }
 
-      function isCapturedAlready(item, capturedToday){
-        if(!item || item.bookedSeconds === null) return false;
-
-        return capturedToday.some(movement => {
-          if(String(movement.trainId || "").toUpperCase() !== String(item.headcode || "").toUpperCase()) return false;
-          const actualSeconds = toSeconds(movement.time);
-          if(actualSeconds === null) return false;
-
-          const diff = Math.min(
-            Math.abs(actualSeconds - item.bookedSeconds),
-            Math.abs((actualSeconds + 86400) - item.bookedSeconds),
-            Math.abs(actualSeconds - (item.bookedSeconds + 86400))
-          );
-
-          return diff <= 4 * 60 * 60;
-        });
-      }
-
-      function dedupeByHeadcodeTime(items){
-        const seen = new Set();
-        const result = [];
-
-        for(const item of items){
-          const key = `${item.type}|${item.headcode}|${item.bookedTime}|${item.sourceLabel}`;
-          if(seen.has(key)) continue;
-          seen.add(key);
-          result.push(item);
-        }
-
-        return result;
-      }
-
-      function chooseNext(items, type, options = {}){
-        const allowBookedOnly = Boolean(options.allowBookedOnly);
-        const overdueGraceSeconds = Number(options.overdueGraceSeconds ?? 90);
-        const maxAheadSeconds = options.maxAheadSeconds == null ? null : Number(options.maxAheadSeconds);
-
-        const pool = items
-          .filter(item => item.type === type)
-          .filter(item => item.bookedSeconds !== null)
-          .filter(item => item.bookedSeconds >= nowSeconds - overdueGraceSeconds)
-          .filter(item => maxAheadSeconds == null ? true : item.bookedSeconds <= nowSeconds + maxAheadSeconds)
-          .filter(item => allowBookedOnly || item.sourceLabel !== "Booked")
-          .sort((a,b) => {
-            const sourceRank = sourcePriority(a.sourceLabel) - sourcePriority(b.sourceLabel);
-            if(sourceRank !== 0 && Math.abs(a.bookedSeconds - b.bookedSeconds) <= 10 * 60) return sourceRank;
-            return a.bookedSeconds - b.bookedSeconds;
-          });
-
-        return pool[0] || null;
-      }
-
-      function sourcePriority(source){
-        if(source === "TD") return 0;
-        if(source === "TD+Schedule") return 0;
-        if(source === "VSTP") return 1;
-        if(source === "TRUST") return 2;
-        if(source === "Booked+TRUST") return 2;
-        if(source === "Booked") return 3;
-        return 4;
-      }
-
-      async function fetchBookedRows(){
-        const result = await supabaseClient
-          .from("schedule_locations")
-          .select(`
-            pass_time,
-            departure,
-            arrival,
-            platform,
-            line,
-            path,
-            signalling_id,
-            schedule_services (
-              signalling_id,
-              origin_tiploc,
-              origin_name,
-              destination_tiploc,
-              destination_name,
-              atoc_code,
-              schedule_start_date,
-              schedule_end_date,
-              days_runs,
-              stp_indicator
-            )
-          `)
-          .in("tiploc", ACTON_BRIDGE_TIPLOCS)
-          .limit(5000);
-
-        if(result.error){
-          console.warn("Booked schedule unavailable:", result.error);
-          return [];
-        }
-
-        return (result.data || [])
-          .map(row => mapScheduleRow(row, "Booked"))
-          .filter(item => item.service)
-          .filter(item => item.bookedSeconds !== null)
-          .filter(item => activeScheduleOnDate(item.service, selectedDate))
-          .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode));
-      }
-
-      async function fetchVstpRows(){
+      async function fetchScheduleRows(tableName, relationName, sourceLabel, limit){
         try {
           const result = await supabaseClient
-            .from("vstp_locations")
+            .from(tableName)
             .select(`
-              pass_time,
-              departure,
-              arrival,
-              platform,
-              line,
-              path,
-              signalling_id,
-              vstp_services (
-                signalling_id,
-                origin_tiploc,
-                origin_name,
-                destination_tiploc,
-                destination_name,
-                atoc_code,
-                schedule_start_date,
-                schedule_end_date,
-                days_runs,
-                stp_indicator
-              )
+              *,
+              ${relationName} (*)
             `)
             .in("tiploc", ACTON_BRIDGE_TIPLOCS)
-            .limit(2000);
+            .limit(limit);
 
-          if(result.error){
-            console.warn("VSTP unavailable:", result.error);
-            return [];
-          }
-
-          return (result.data || [])
-            .map(row => mapScheduleRow(row, "VSTP"))
-            .filter(item => item.service)
-            .filter(item => item.bookedSeconds !== null)
-            .filter(item => activeScheduleOnDate(item.service, selectedDate))
-            .filter(item => /^[0-9][A-Z][0-9]{2}$/.test(item.headcode));
+          if(result.error) throw result.error;
+          return (result.data || []).map(row => mapScheduleRow(row, relationName, sourceLabel)).filter(Boolean);
         } catch(err) {
-          console.warn("VSTP lookup failed:", err);
+          console.warn(`${sourceLabel} schedule lookup failed:`, err);
           return [];
         }
+      }
+
+      function capturedRowToItem(row){
+        const actualTime = row.actual_time || "";
+        const plannedTime = row.planned_time || "";
+        const displayTime = actualTime || plannedTime;
+        const actualSeconds = toSeconds(actualTime);
+        const plannedSeconds = toSeconds(plannedTime);
+        const delayMinutes = actualSeconds !== null && plannedSeconds !== null
+          ? Math.round((actualSeconds - plannedSeconds) / 60)
+          : null;
+
+        return applyRouteFallback({
+          headcode: normaliseHeadcode(row.train_id),
+          trainId: normaliseHeadcode(row.train_id),
+          type: headcodeTypeSafe(row.train_id),
+          bookedTime: displayTime,
+          bookedSeconds: toSeconds(displayTime),
+          scheduledTime: plannedTime,
+          scheduledSeconds: plannedSeconds,
+          actualTime,
+          actualSeconds,
+          delayMinutes,
+          time: displayTime,
+          platform: row.platform || "—",
+          origin: cleanRouteName(row.origin),
+          destination: cleanRouteName(row.destination),
+          toc: row.toc || "",
+          status: row.status || "",
+          sourceLabel: "TRUST"
+        });
       }
 
       async function fetchCapturedRows(){
@@ -2490,314 +2444,246 @@
             .eq("station_crs", "ACB")
             .eq("running_date", selectedDate)
             .eq("source", "Network Rail TRUST")
-            .limit(2500);
+            .limit(3000);
 
-          if(result.error){
-            console.warn("Captured movement lookup failed:", result.error);
-            return [];
-          }
-
-          return (result.data || []).map(row => {
-            const actualTime = row.actual_time || "";
-            const plannedTime = row.planned_time || "";
-            const displayTime = actualTime || plannedTime;
-            const actualSeconds = toSeconds(actualTime);
-            const plannedSeconds = toSeconds(plannedTime);
-            const delayMinutes = actualSeconds !== null && plannedSeconds !== null
-              ? Math.round((actualSeconds - plannedSeconds) / 60)
-              : null;
-
-            return {
-              headcode: row.train_id,
-              trainId: row.train_id,
-              type: headcodeType(row.train_id),
-              bookedTime: displayTime,
-              bookedSeconds: toSeconds(displayTime),
-              scheduledTime: plannedTime,
-              scheduledSeconds: plannedSeconds,
-              actualTime,
-              actualSeconds,
-              delayMinutes,
-              time: displayTime,
-              platform: row.platform || "—",
-              origin: cleanRouteName(row.origin),
-              destination: cleanRouteName(row.destination),
-              toc: row.toc || "",
-              service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-              sourceLabel: "TRUST"
-            };
-          });
+          if(result.error) throw result.error;
+          return (result.data || []).map(capturedRowToItem).filter(item => item.headcode);
         } catch(err) {
-          console.warn("Captured movement lookup failed:", err);
+          console.warn("Captured TRUST lookup failed:", err);
           return [];
         }
       }
 
-      async function fetchTdRows(){
+      function extractHeadcodesFromAnything(value, found = new Set()){
+        if(value === null || value === undefined) return found;
+        if(typeof value === "string" || typeof value === "number"){
+          const str = String(value).toUpperCase();
+          const matches = str.match(/\b[0-9][A-Z][0-9]{2}\b/g) || [];
+          matches.forEach(hc => found.add(hc));
+          return found;
+        }
+        if(Array.isArray(value)){
+          value.forEach(v => extractHeadcodesFromAnything(v, found));
+          return found;
+        }
+        if(typeof value === "object"){
+          Object.values(value).forEach(v => extractHeadcodesFromAnything(v, found));
+        }
+        return found;
+      }
+
+      async function fetchHeadcodesFromTable(tableName, options = {}){
         try {
-          const mapResult = await supabaseClient
-            .from("td_berth_map")
-            .select("area_id,berth,side,label")
-            .eq("area_id", "CE");
-
-          const currentResult = await supabaseClient
-            .from("td_current_berths")
-            .select("area_id,berth,description,updated_at")
-            .eq("area_id", "CE")
-            .not("description", "is", null);
-
-          // Also look at recent TD events. A freight may only be in a mapped berth briefly,
-          // so current berths alone can miss an activated train approaching Acton Bridge.
-          const sinceIso = new Date(Date.now() - 180 * 60 * 1000).toISOString();
-          const eventResult = await supabaseClient
-            .from("td_berth_events")
-            .select("area_id,berth,description,event_ts")
-            .eq("area_id", "CE")
-            .gte("event_ts", sinceIso)
-            .not("description", "is", null)
-            .order("event_ts", { ascending:false })
-            .limit(2000);
-
-          if(mapResult.error || currentResult.error){
-            console.warn("TD lookup unavailable:", mapResult.error || currentResult.error);
-            return [];
+          let query = supabaseClient.from(tableName).select("*");
+          if(options.areaCE) query = query.eq("area_id", "CE");
+          if(options.dateColumn) query = query.eq(options.dateColumn, selectedDate);
+          if(options.sinceColumn){
+            const sinceIso = new Date(Date.now() - 240 * 60 * 1000).toISOString();
+            query = query.gte(options.sinceColumn, sinceIso);
           }
-
-          const mapped = mapResult.data || [];
-          const rows = [];
-          rows.push(...(currentResult.data || []).map(row => ({...row, seen_ts: row.updated_at, tdKind:"current"})));
-          if(!eventResult.error){
-            rows.push(...(eventResult.data || []).map(row => ({...row, seen_ts: row.event_ts, tdKind:"recent"})));
-          } else {
-            console.warn("TD recent event lookup unavailable:", eventResult.error);
-          }
-
-          const seen = new Set();
-          return rows
-            .filter(row => row.description && /^[0-9][A-Z][0-9]{2}$/.test(String(row.description).trim()))
-            .filter(row => {
-              // Do not require the berth to be in td_berth_map here.
-              // The map is still used by the TD approach card, but the freight widget
-              // only needs evidence that the same headcode is live/recent in the CE TD feed
-              // AND booked through Acton Bridge. This fixes missing next-freight cases
-              // caused by incomplete berth mapping.
-              return String(row.area_id || "").trim().toUpperCase() === "CE";
-            })
-            .filter(row => {
-              const key = `${String(row.description).trim().toUpperCase()}|${row.berth}`;
-              if(seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            })
-            .map(row => ({
-              headcode: String(row.description).trim().toUpperCase(),
-              type: headcodeType(row.description),
-              bookedTime: "TD live",
-              bookedSeconds: nowSeconds,
-              platform: "—",
-              origin: "Live TD",
-              destination: row.berth ? `berth ${row.berth}` : "mapped berth",
-              toc: "",
-              service: { schedule_start_date:selectedDate, schedule_end_date:selectedDate },
-              sourceLabel: "TD",
-              tdSeenAt: row.seen_ts
-            }));
+          query = query.limit(options.limit || 1000);
+          const result = await query;
+          if(result.error) throw result.error;
+          const set = new Set();
+          (result.data || []).forEach(row => extractHeadcodesFromAnything(row, set));
+          return set;
         } catch(err) {
-          console.warn("TD lookup failed:", err);
-          return [];
+          // Some of these optional tables/views may not exist yet. That is fine.
+          console.warn(`${tableName} live-headcode lookup unavailable:`, err?.message || err);
+          return new Set();
         }
       }
 
-      try {
-        const [bookedRows, vstpRows, capturedRows, tdRows] = await Promise.all([
-          fetchBookedRows(),
-          fetchVstpRows(),
-          fetchCapturedRows(),
-          fetchTdRows()
+      async function fetchLiveHeadcodes(capturedRows){
+        const sets = await Promise.all([
+          fetchHeadcodesFromTable("td_current_berths", { areaCE:true, limit:2000 }),
+          fetchHeadcodesFromTable("td_berth_events", { areaCE:true, sinceColumn:"event_ts", limit:3000 }),
+          fetchHeadcodesFromTable("trust_activated_services", { dateColumn:"running_date", limit:1000 }),
+          fetchHeadcodesFromTable("trust_live_services", { dateColumn:"running_date", limit:1000 }),
+          fetchHeadcodesFromTable("activated_services", { dateColumn:"running_date", limit:1000 }),
+          fetchHeadcodesFromTable("live_train_movements", { dateColumn:"running_date", limit:1000 }),
+          fetchHeadcodesFromTable("current_train_movements", { dateColumn:"running_date", limit:1000 })
         ]);
 
-        const capturedToday = capturedRows.map(row => ({ trainId:row.trainId || row.headcode, time:row.time || row.bookedTime }));
+        const live = new Set();
+        sets.forEach(set => set.forEach(hc => live.add(hc)));
 
-        const bookedClean = dedupeByHeadcodeTime(bookedRows)
-          .filter(item => !isCapturedAlready(item, capturedToday));
-
-        const vstpClean = dedupeByHeadcodeTime(vstpRows)
-          .filter(item => !isCapturedAlready(item, capturedToday));
-
-                const allLiveOrConfirmed = dedupeByHeadcodeTime(vstpClean.concat(tdRows).concat(capturedRows));
-        const allScheduleForPassenger = dedupeByHeadcodeTime(bookedClean.concat(vstpClean));
-
-        function findRelatedBookedRoute(item){
-          if(!item) return null;
-          const itemSeconds = item.bookedSeconds;
-          return bookedRows
-            .filter(row => String(row.headcode || "").toUpperCase() === String(item.headcode || "").toUpperCase())
-            .filter(row => row.bookedSeconds !== null && itemSeconds !== null && Math.abs(row.bookedSeconds - itemSeconds) <= 4 * 60 * 60)
-            .sort((a,b) => Math.abs(a.bookedSeconds - itemSeconds) - Math.abs(b.bookedSeconds - itemSeconds))[0] || null;
-        }
-
-        function findTrustForBooked(item){
-          if(!item) return null;
-          const itemSeconds = item.bookedSeconds;
-          return capturedRows
-            .filter(row => String(row.headcode || "").toUpperCase() === String(item.headcode || "").toUpperCase())
-            .filter(row => row.bookedSeconds !== null && itemSeconds !== null && Math.abs(row.bookedSeconds - itemSeconds) <= 4 * 60 * 60)
-            .sort((a,b) => Math.abs(a.bookedSeconds - itemSeconds) - Math.abs(b.bookedSeconds - itemSeconds))[0] || null;
-        }
-
-        function attachTrustDelay(bookedItem){
-          if(!bookedItem) return null;
-          const trust = findTrustForBooked(bookedItem);
-          if(!trust) return bookedItem;
-
-          return {
-            ...bookedItem,
-            actualTime: trust.actualTime || trust.time || "",
-            actualSeconds: trust.actualSeconds ?? trust.bookedSeconds,
-            delayMinutes: trust.delayMinutes,
-            trustStatus: trust.status || "",
-            sourceLabel: "Booked+TRUST"
-          };
-        }
-
-        const liveHeadcodes = new Set(
-          tdRows.concat(capturedRows)
-            .map(item => String(item.headcode || item.trainId || "").trim().toUpperCase())
-            .filter(Boolean)
-        );
-
-        function attachLiveEvidenceToSchedule(scheduleItem){
-          if(!scheduleItem) return null;
-          const headcode = String(scheduleItem.headcode || "").trim().toUpperCase();
-          if(!headcode || !liveHeadcodes.has(headcode)) return null;
-
-          const captured = capturedRows
-            .filter(row => String(row.headcode || row.trainId || "").trim().toUpperCase() === headcode)
-            .sort((a,b) => Math.abs((a.bookedSeconds ?? nowSeconds) - scheduleItem.bookedSeconds) - Math.abs((b.bookedSeconds ?? nowSeconds) - scheduleItem.bookedSeconds))[0] || null;
-
-          const td = tdRows.find(row => String(row.headcode || "").trim().toUpperCase() === headcode) || null;
-          const evidence = captured || td;
-          if(!evidence) return null;
-
-          return {
-            ...scheduleItem,
-            actualTime: captured?.actualTime || captured?.time || "",
-            actualSeconds: captured?.actualSeconds ?? null,
-            delayMinutes: captured?.delayMinutes ?? null,
-            trustStatus: captured?.status || "",
-            evidenceLabel: captured ? "TRUST captured" : "TD live",
-            sourceLabel: captured ? "TRUST" : "TD+Schedule"
-          };
-        }
-
-        const nextPassenger = attachTrustDelay(
-          chooseNext(allScheduleForPassenger, "passenger", {
-            allowBookedOnly:true,
-            overdueGraceSeconds:5 * 60,
-            maxAheadSeconds:90 * 60
-          })
-        );
-
-        // Freight next expected MUST be activated/live only.
-        // Route/time can come from the booked Acton Bridge schedule, but ONLY when the
-        // same headcode is currently visible in live TD or has been captured by TRUST.
-        // This blocks booked-only, VSTP-only, Q-path and runs-as-required ghost freight.
-        const liveConfirmedScheduleRows = dedupeByHeadcodeTime(bookedClean.concat(vstpClean))
-          .map(attachLiveEvidenceToSchedule)
-          .filter(Boolean);
-
-        const trustFreightOnly = dedupeByHeadcodeTime(capturedRows.concat(liveConfirmedScheduleRows))
-          .filter(item => item.type === "freight");
-
-        const nextFreight = chooseNext(trustFreightOnly, "freight", {
-          allowBookedOnly:false,
-          overdueGraceSeconds:5 * 60,
-          maxAheadSeconds:180 * 60
+        // Captured TRUST rows prove the headcode ran today, but for next-freight we still
+        // remove rows already captured at Acton Bridge before choosing the next service.
+        capturedRows.forEach(item => {
+          const hc = normaliseHeadcode(item.headcode || item.trainId);
+          if(hc) live.add(hc);
         });
 
-        const trustLightEngineOnly = dedupeByHeadcodeTime(capturedRows.concat(liveConfirmedScheduleRows))
-          .filter(item => item.type === "light_engine");
+        return live;
+      }
 
-        const nextLightEngine = chooseNext(trustLightEngineOnly, "light_engine", {
-          allowBookedOnly:false,
-          overdueGraceSeconds:5 * 60,
-          maxAheadSeconds:90 * 60
+      function dedupeByHeadcodeTime(items){
+        const seen = new Set();
+        const result = [];
+        for(const item of items){
+          const key = `${item.type}|${item.headcode}|${item.bookedTime}|${item.sourceLabel}`;
+          if(seen.has(key)) continue;
+          seen.add(key);
+          result.push(item);
+        }
+        return result;
+      }
+
+      function isCapturedAlready(item, capturedRows){
+        if(!item || item.bookedSeconds === null) return false;
+        return capturedRows.some(row => {
+          const hc1 = normaliseHeadcode(row.headcode || row.trainId);
+          const hc2 = normaliseHeadcode(item.headcode);
+          if(!hc1 || hc1 !== hc2) return false;
+          const seconds = row.actualSeconds ?? row.bookedSeconds;
+          if(seconds === null || seconds === undefined) return false;
+          const diff = Math.min(
+            Math.abs(seconds - item.bookedSeconds),
+            Math.abs((seconds + 86400) - item.bookedSeconds),
+            Math.abs(seconds - (item.bookedSeconds + 86400))
+          );
+          return diff <= 4 * 60 * 60;
         });
+      }
 
-        const nextEcs = chooseNext(allScheduleForPassenger, "ecs", { allowBookedOnly:true });
+      function findTrustForBooked(item, capturedRows){
+        if(!item) return null;
+        return capturedRows
+          .filter(row => normaliseHeadcode(row.headcode || row.trainId) === normaliseHeadcode(item.headcode))
+          .filter(row => row.bookedSeconds !== null && item.bookedSeconds !== null && Math.abs(row.bookedSeconds - item.bookedSeconds) <= 4 * 60 * 60)
+          .sort((a,b) => Math.abs(a.bookedSeconds - item.bookedSeconds) - Math.abs(b.bookedSeconds - item.bookedSeconds))[0] || null;
+      }
 
+      function attachTrustDelay(bookedItem, capturedRows){
+        if(!bookedItem) return null;
+        const trust = findTrustForBooked(bookedItem, capturedRows);
+        if(!trust) return bookedItem;
+        return {
+          ...bookedItem,
+          actualTime: trust.actualTime || trust.time || "",
+          actualSeconds: trust.actualSeconds ?? trust.bookedSeconds,
+          delayMinutes: trust.delayMinutes,
+          trustStatus: trust.status || "",
+          sourceLabel: "Booked+TRUST"
+        };
+      }
 
+      function chooseNext(items, type, options = {}){
+        const overdueGraceSeconds = Number(options.overdueGraceSeconds ?? 5 * 60);
+        const maxAheadSeconds = options.maxAheadSeconds == null ? null : Number(options.maxAheadSeconds);
+        return items
+          .filter(item => item.type === type)
+          .filter(item => item.bookedSeconds !== null && item.bookedSeconds !== undefined)
+          .filter(item => item.bookedSeconds >= nowSeconds - overdueGraceSeconds)
+          .filter(item => maxAheadSeconds == null ? true : item.bookedSeconds <= nowSeconds + maxAheadSeconds)
+          .sort((a,b) => a.bookedSeconds - b.bookedSeconds)[0] || null;
+      }
 
-        function formatNext(label, item, cssClass, emptyText){
-          if(!item){
-            return `
-              <span class="next-service-line ${cssClass}">
-                <span class="next-service-label ${cssClass}">${label}:</span>
-                <span class="next-service-main">${escapeHtml(emptyText)}</span>
-              </span>
-            `;
-          }
+      function displayTiming(item){
+        const source =
+          item.sourceLabel === "Booked+TRUST" ? "running TRUST" :
+          item.sourceLabel === "TD+Schedule" ? "activated / moving" :
+          item.sourceLabel === "Live+Schedule" ? "activated / moving" :
+          item.sourceLabel === "TRUST" ? "running TRUST" :
+          item.sourceLabel === "VSTP" ? "VSTP schedule" :
+          "booked";
 
-          const source =
-            item.sourceLabel === "Booked" ? "booked" :
-            item.sourceLabel === "Booked+TRUST" ? "running TRUST" :
-            item.sourceLabel === "TD+Schedule" ? "activated / moving" :
-            item.sourceLabel === "TD" ? "TD live" :
-            item.sourceLabel === "VSTP" ? "confirmed VSTP" :
-            "running TRUST";
+        if(item.delayMinutes !== null && item.delayMinutes !== undefined){
+          if(item.delayMinutes > 0) return `${item.delayMinutes} min late · ${source}`;
+          if(item.delayMinutes < 0) return `${Math.abs(item.delayMinutes)} min early · ${source}`;
+          return `on time · ${source}`;
+        }
+        return source;
+      }
 
-          let timingText = source;
-          if(item.delayMinutes !== null && item.delayMinutes !== undefined){
-            if(item.delayMinutes > 0) timingText = `${item.delayMinutes} min late · ${source}`;
-            else if(item.delayMinutes < 0) timingText = `${Math.abs(item.delayMinutes)} min early · ${source}`;
-            else timingText = `on time · ${source}`;
-          } else if(item.sourceLabel === "Booked" && item.bookedSeconds !== null && item.bookedSeconds < nowSeconds - 60) {
-            const overdueMins = Math.max(1, Math.round((nowSeconds - item.bookedSeconds) / 60));
-            timingText = `overdue by ${overdueMins} min / not yet captured`;
-          }
-
-          const status = `<span class="next-service-status">${escapeHtml(timingText)}</span>`;
-
-          if(item.sourceLabel === "TD"){
-            return `
-              <span class="next-service-line ${cssClass}">
-                <span class="next-service-label ${cssClass}">${label}:</span>
-                <span class="next-service-main">${escapeHtml(item.headcode)} — live in ${escapeHtml(item.destination)} ${status}</span>
-              </span>
-            `;
-          }
-
-          const relatedBooked = findRelatedBookedRoute(item);
-          const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
-          const originText = item.origin && item.origin !== "Unknown" && item.origin !== "Route pending"
-            ? item.origin
-            : (relatedBooked?.origin || "Route pending");
-          const destinationText = item.destination && item.destination !== "Unknown" && item.destination !== "Route pending"
-            ? item.destination
-            : (relatedBooked?.destination || "Route pending");
-
+      function formatNext(label, item, cssClass, emptyText){
+        if(!item){
           return `
             <span class="next-service-line ${cssClass}">
               <span class="next-service-label ${cssClass}">${label}:</span>
-              <span class="next-service-main">${item.sourceLabel === "TRUST" ? escapeHtml(item.bookedTime) : displayScheduleTime(item.bookedTime)} — ${escapeHtml(item.headcode)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}${escapeHtml(platformText)} ${status}</span>
+              <span class="next-service-main">${escapeHtml(emptyText)}</span>
             </span>
           `;
         }
+
+        const platformText = item.platform && item.platform !== "—" ? ` · P${item.platform}` : "";
+        const originText = isRoutePending(item.origin) ? "Route pending" : item.origin;
+        const destinationText = isRoutePending(item.destination) ? "Route pending" : item.destination;
+        const timeText = displayScheduleTime(item.bookedTime);
+        const status = `<span class="next-service-status">${escapeHtml(displayTiming(item))}</span>`;
+
+        return `
+          <span class="next-service-line ${cssClass}">
+            <span class="next-service-label ${cssClass}">${label}:</span>
+            <span class="next-service-main">${escapeHtml(timeText)} — ${escapeHtml(item.headcode)} — ${escapeHtml(originText)} to ${escapeHtml(destinationText)}${escapeHtml(platformText)} ${status}</span>
+          </span>
+        `;
+      }
+
+      try {
+        const [bookedRows, vstpRows, capturedRows] = await Promise.all([
+          fetchScheduleRows("schedule_locations", "schedule_services", "Booked", 8000),
+          fetchScheduleRows("vstp_locations", "vstp_services", "VSTP", 3000),
+          fetchCapturedRows()
+        ]);
+
+        const liveHeadcodes = await fetchLiveHeadcodes(capturedRows);
+
+        const allSchedule = dedupeByHeadcodeTime(bookedRows.concat(vstpRows));
+        const notYetCaptured = allSchedule.filter(item => !isCapturedAlready(item, capturedRows));
+
+        const passengerPool = notYetCaptured.filter(item => item.type === "passenger");
+        const nextPassenger = attachTrustDelay(
+          chooseNext(passengerPool, "passenger", {
+            overdueGraceSeconds: 5 * 60,
+            maxAheadSeconds: null
+          }),
+          capturedRows
+        );
+
+        // Freight remains live/activated only. We use the booked Acton Bridge pass time
+        // and route only after the same headcode appears in TD/TRUST/live tables.
+        const liveFreightSchedule = notYetCaptured
+          .filter(item => item.type === "freight")
+          .filter(item => liveHeadcodes.has(normaliseHeadcode(item.headcode)))
+          .map(item => ({ ...item, sourceLabel: "Live+Schedule" }));
+
+        const nextFreight = chooseNext(liveFreightSchedule, "freight", {
+          overdueGraceSeconds: 5 * 60,
+          maxAheadSeconds: null
+        });
+
+        const liveLightEngineSchedule = notYetCaptured
+          .filter(item => item.type === "light_engine")
+          .filter(item => liveHeadcodes.has(normaliseHeadcode(item.headcode)))
+          .map(item => ({ ...item, sourceLabel: "Live+Schedule" }));
+
+        const nextLightEngine = chooseNext(liveLightEngineSchedule, "light_engine", {
+          overdueGraceSeconds: 5 * 60,
+          maxAheadSeconds: null
+        });
+
+        const nextEcs = chooseNext(notYetCaptured, "ecs", {
+          overdueGraceSeconds: 5 * 60,
+          maxAheadSeconds: 90 * 60
+        });
 
         box.innerHTML =
           `<div class="next-service-widget">` +
           `<div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div>` +
           `<div class="next-service-body">` +
-          formatNext("Passenger", nextPassenger, "passenger", "None found today") +
-          formatNext("Freight", nextFreight, "freight", "No TRUST-activated freight currently approaching Acton Bridge") +
+          formatNext("Passenger", nextPassenger, "passenger", "No passenger service found for the rest of today") +
+          formatNext("Freight", nextFreight, "freight", "No TRUST/TD-activated freight currently approaching Acton Bridge") +
           formatNext("Light Engine", nextLightEngine, "light_engine", "No activated light-engine movement currently visible near Acton Bridge") +
           formatNext("ECS/Other", nextEcs, "ecs", "None found today") +
-          `<span class="next-service-warning">Passenger shows the next scheduled passenger and adds TRUST timing when available. Freight uses booked Acton Bridge route/time only after live/recent CE TD or TRUST evidence confirms that headcode is active, so booked/VSTP/Q ghost paths stay hidden.</span>` +
+          `<span class="next-service-warning">Passenger shows the next booked passenger through Acton Bridge and adds TRUST timing when available. Freight shows the next booked Acton Bridge freight only when the same headcode is live/activated in TD/TRUST data, so ghost freight paths stay hidden.</span>` +
           `</div></div>`;
 
       } catch(err) {
         console.error("Next expected service box failed:", err);
-        box.textContent = "Booked schedule unavailable";
+        box.innerHTML =
+          `<div class="next-service-widget"><div class="next-service-datebox"><span class="next-service-date-label">Date</span><strong class="next-service-date-value">${escapeHtml(formatDate(selectedDate))}</strong><span class="next-service-clock">UK time: ${escapeHtml(nowClock)}</span></div><div class="next-service-body"><span class="next-service-line"><span class="next-service-label">Status</span><span class="next-service-main">Next service lookup unavailable</span></span></div></div>`;
       }
     }
 
