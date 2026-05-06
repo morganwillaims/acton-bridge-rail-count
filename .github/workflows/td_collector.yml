@@ -2,6 +2,7 @@ name: Acton Bridge TD Collector
 
 on:
   schedule:
+    # Short run every 5 minutes. Keeps TD live without long-running loops.
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
@@ -25,36 +26,73 @@ jobs:
 
       - name: Install dependencies
         run: pip install stomp.py requests
-      - name: Test Network Rail STOMP connection
+
+      - name: Test Network Rail secrets
         env:
           NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
           NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python - <<'PY'
-          import os, socket
+          import os
+
+          required = [
+              "NETWORK_RAIL_USERNAME",
+              "NETWORK_RAIL_PASSWORD",
+              "SUPABASE_URL",
+              "SUPABASE_SERVICE_ROLE_KEY",
+          ]
+
+          missing = []
+
+          for key in required:
+              present = bool(os.environ.get(key))
+              print(f"{key} present: {present}")
+              if not present:
+                  missing.append(key)
+
+          if missing:
+              raise SystemExit(f"Missing required secrets: {', '.join(missing)}")
+
+          print("All required secrets are present.")
+          PY
+
+      - name: Test Network Rail STOMP TCP connection
+        run: |
+          python - <<'PY'
+          import socket
 
           host = "publicdatafeeds.networkrail.co.uk"
           port = 61618
 
-          print("Username secret present:", bool(os.environ.get("NETWORK_RAIL_USERNAME")))
-          print("Password secret present:", bool(os.environ.get("NETWORK_RAIL_PASSWORD")))
+          print(f"Testing TCP connection to {host}:{port}...")
 
           try:
-              print(f"Testing TCP connection to {host}:{port}...")
-              s = socket.create_connection((host, port), timeout=20)
+              sock = socket.create_connection((host, port), timeout=20)
               print("TCP connection OK")
-              s.close()
-          except Exception as e:
-              print("TCP connection FAILED:", repr(e))
+              sock.close()
+          except Exception as exc:
+              print("TCP connection FAILED:", repr(exc))
               raise
           PY
+
       - name: Run TD collector
         env:
           NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
           NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          # Crewe / Acton Bridge TD signalling area
           TD_AREA_FILTER: "CE"
+
+          # Short run only. GitHub schedules it again.
           LISTEN_SECONDS: "240"
+
+          # Critical protection:
+          # false = do not refill td_berth_events.
+          # The live website only needs td_current_berths.
           STORE_TD_EVENTS: "false"
+
         run: python td_collector.py
