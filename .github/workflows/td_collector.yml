@@ -25,7 +25,29 @@ jobs:
 
       - name: Install dependencies
         run: pip install stomp.py requests
+      - name: Test Network Rail STOMP connection
+        env:
+          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
+          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+        run: |
+          python - <<'PY'
+          import os, socket
 
+          host = "publicdatafeeds.networkrail.co.uk"
+          port = 61618
+
+          print("Username secret present:", bool(os.environ.get("NETWORK_RAIL_USERNAME")))
+          print("Password secret present:", bool(os.environ.get("NETWORK_RAIL_PASSWORD")))
+
+          try:
+              print(f"Testing TCP connection to {host}:{port}...")
+              s = socket.create_connection((host, port), timeout=20)
+              print("TCP connection OK")
+              s.close()
+          except Exception as e:
+              print("TCP connection FAILED:", repr(e))
+              raise
+          PY
       - name: Run TD collector
         env:
           NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
