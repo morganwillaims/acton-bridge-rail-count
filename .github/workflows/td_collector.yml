@@ -2,7 +2,6 @@ name: Acton Bridge TD Collector
 
 on:
   schedule:
-    # Run often, but short. This keeps td_current_berths fresh without a long 55-minute loop.
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
@@ -35,4 +34,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TD_AREA_FILTER: "CE"
           LISTEN_SECONDS: "240"
+          STORE_TD_EVENTS: "false"
         run: python td_collector.py
