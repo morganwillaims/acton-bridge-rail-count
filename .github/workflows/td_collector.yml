@@ -88,7 +88,7 @@ jobs:
           TD_AREA_FILTER: "CE"
 
           # Short run only. GitHub schedules it again.
-          LISTEN_SECONDS: "240"
+          LISTEN_SECONDS: "180"
 
           # Critical protection:
           # false = do not refill td_berth_events.
