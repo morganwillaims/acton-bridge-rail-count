@@ -253,7 +253,11 @@ def main():
         flush=True,
     )
 
-    conn = stomp.Connection([("datafeeds.networkrail.co.uk", 61618)], heartbeats=(10000, 10000))
+    conn = stomp.Connection(
+    [("publicdatafeeds.networkrail.co.uk", 61618)],
+    vhost="publicdatafeeds.networkrail.co.uk",
+    heartbeats=(10000, 10000)
+)
     listener = Listener()
     conn.set_listener("", listener)
     conn.connect(NETWORK_RAIL_USERNAME, NETWORK_RAIL_PASSWORD, wait=True)
