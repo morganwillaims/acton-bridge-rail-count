@@ -18,31 +18,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 20
+          python-version: "3.11"
 
-      - name: Show repo files
+      - name: Install Python dependencies
         run: |
-          echo "Current folder:"
-          pwd
-
-          echo ""
-          echo "Files in repo root:"
-          ls -la
-
-          echo ""
-          echo "Workflow files:"
-          find .github/workflows -maxdepth 2 -type f | sort || true
-
-          echo ""
-          echo "JavaScript files found:"
-          find . -maxdepth 4 -type f -name "*.js" | sort
-
-          echo ""
-          echo "Package files found:"
-          find . -maxdepth 4 -type f \( -name "package.json" -o -name "package-lock.json" \) | sort
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Run TD collector loop
         env:
@@ -57,7 +41,7 @@ jobs:
           do
             echo "TD collector run $i of 10 at $(date -u)"
 
-            node td-collector.js || echo "TD collector run $i failed but loop will continue"
+            python td_collector.py || echo "TD collector run $i failed but loop will continue"
 
             if [ "$i" -lt 10 ]; then
               echo "Waiting 5 minutes before next TD collection..."
