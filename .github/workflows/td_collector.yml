@@ -23,6 +23,15 @@ jobs:
         with:
           node-version: 20
 
+                - name: Show repo files
+        run: |
+          echo "Current folder:"
+          pwd
+          echo "Files in repo root:"
+          ls -la
+          echo "JavaScript files:"
+          find . -maxdepth 3 -type f -name "*.js" | sort
+
       - name: Run TD collector loop
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
