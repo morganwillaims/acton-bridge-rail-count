@@ -3,7 +3,7 @@ name: TD Collector
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/55 * * * *"
 
 concurrency:
   group: td-collector
@@ -12,29 +12,39 @@ concurrency:
 jobs:
   collect-td:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 58
 
     steps:
-      - name: Check out repo
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: 20
 
-      - name: Install Python packages
-        run: |
-          python -m pip install --upgrade pip
-          pip install stomp.py requests
+      - name: Install dependencies
+        run: npm install
 
-      - name: Run TD collector
+      - name: Run TD collector loop
         env:
-          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
-          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          TD_AREA_ID: CE
-          TD_LISTEN_SECONDS: 240
-          STORE_TD_EVENTS: "false"
-        run: python td_collector.py
+          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
+          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+        run: |
+          echo "Starting TD collector loop..."
+
+          for i in {1..10}
+          do
+            echo "TD collector run $i of 10 at $(date -u)"
+
+            node td-collector.js || echo "TD collector run $i failed but loop will continue"
+
+            if [ "$i" -lt 10 ]; then
+              echo "Waiting 5 minutes before next TD collection..."
+              sleep 300
+            fi
+          done
+
+          echo "TD collector loop finished."
