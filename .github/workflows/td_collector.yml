@@ -23,14 +23,26 @@ jobs:
         with:
           node-version: 20
 
-                - name: Show repo files
+      - name: Show repo files
         run: |
           echo "Current folder:"
           pwd
+
+          echo ""
           echo "Files in repo root:"
           ls -la
-          echo "JavaScript files:"
-          find . -maxdepth 3 -type f -name "*.js" | sort
+
+          echo ""
+          echo "Workflow files:"
+          find .github/workflows -maxdepth 2 -type f | sort || true
+
+          echo ""
+          echo "JavaScript files found:"
+          find . -maxdepth 4 -type f -name "*.js" | sort
+
+          echo ""
+          echo "Package files found:"
+          find . -maxdepth 4 -type f \( -name "package.json" -o -name "package-lock.json" \) | sort
 
       - name: Run TD collector loop
         env:
