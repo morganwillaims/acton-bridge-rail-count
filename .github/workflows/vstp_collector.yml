@@ -3,7 +3,7 @@ name: Acton Bridge VSTP Collector
 on:
   workflow_dispatch:
   schedule:
-    # VSTP can fill special/short-term route gaps. Run less often than TRUST/TD.
+    # VSTP fills special/short-term route gaps. Offset from TRUST/TD collectors.
     - cron: "7-59/15 * * * *"
 
 concurrency:
@@ -33,4 +33,11 @@ jobs:
           NR_USERNAME: ${{ secrets.NR_USERNAME }}
           NR_PASSWORD: ${{ secrets.NR_PASSWORD }}
         run: |
-          python vstp_collector.py
+          if [ -f vstp_collector.py ]; then
+            python vstp_collector.py
+          elif [ -f collect_vstp.py ]; then
+            python collect_vstp.py
+          else
+            echo "No VSTP collector script found"
+            exit 1
+          fi

@@ -3,7 +3,7 @@ name: Acton Bridge Route Backfill Loop
 on:
   workflow_dispatch:
   schedule:
-    # Backfill routes after data has arrived. Staggered to avoid the collectors.
+    # Staggered route enrichment. Runs repeatedly but stays short.
     - cron: "12-59/30 * * * *"
 
 concurrency:
@@ -23,7 +23,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Run route backfill
+      - name: Run route backfill once
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

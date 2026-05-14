@@ -3,8 +3,9 @@ name: Acton Bridge Schedule Loader
 on:
   workflow_dispatch:
   schedule:
-    # Heavy-ish enrichment job. Run daily early morning, not every few minutes.
+    # Schedule data is heavier. Run automatically but not constantly.
     - cron: "18 03 * * *"
+    - cron: "18 15 * * *"
 
 concurrency:
   group: acton-bridge-schedule-loader
@@ -23,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Run schedule loader
+      - name: Run schedule loader once
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -33,4 +34,11 @@ jobs:
           NR_USERNAME: ${{ secrets.NR_USERNAME }}
           NR_PASSWORD: ${{ secrets.NR_PASSWORD }}
         run: |
-          python schedule_loader.py
+          if [ -f schedule_loader.py ]; then
+            python schedule_loader.py
+          elif [ -f load_schedules.py ]; then
+            python load_schedules.py
+          else
+            echo "No schedule loader script found"
+            exit 1
+          fi
