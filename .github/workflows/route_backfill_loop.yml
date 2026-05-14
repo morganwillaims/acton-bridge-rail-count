@@ -1,36 +1,39 @@
 name: Acton Bridge Route Backfill Loop
 
 on:
-  schedule:
-    # Runs every 6 hours
-    - cron: "0 */6 * * *"
   workflow_dispatch:
+  schedule:
+    # Backfill routes after data has arrived. Staggered to avoid the collectors.
+    - cron: "12-59/30 * * * *"
 
 concurrency:
-  group: acton-bridge-route-backfill-loop
-  cancel-in-progress: false
+  group: acton-bridge-route-backfill
+  cancel-in-progress: true
 
 jobs:
-  backfill-loop:
+  route_backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    timeout-minutes: 12
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          python-version: "3.11"
       - name: Install dependencies
-        run: pip install requests
-
-      - name: Run route backfill loop
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Run route backfill
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          ROUTE_BACKFILL_LOOP_SECONDS: "21300"
-          ROUTE_BACKFILL_SLEEP_SECONDS: "60"
-        run: python route_backfill_loop.py
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          if [ -f route_backfill_loop.py ]; then
+            python route_backfill_loop.py
+          elif [ -f route_backfill.py ]; then
+            python route_backfill.py
+          else
+            echo "No route backfill script found"
+            exit 1
+          fi

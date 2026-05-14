@@ -1,36 +1,36 @@
 name: Acton Bridge VSTP Collector
 
 on:
-  schedule:
-    - cron: "0 * * * *"
   workflow_dispatch:
+  schedule:
+    # VSTP can fill special/short-term route gaps. Run less often than TRUST/TD.
+    - cron: "7-59/15 * * * *"
 
 concurrency:
   group: acton-bridge-vstp-collector
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
-  vstp:
+  collect_vstp:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    timeout-minutes: 10
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          python-version: "3.11"
       - name: Install dependencies
-        run: pip install stomp.py requests
-
-      - name: Run VSTP collector
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Run VSTP collector once
         env:
-          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
-          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          LISTEN_SECONDS: "3300"
-        run: python vstp_collector.py
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
+          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+          NR_USERNAME: ${{ secrets.NR_USERNAME }}
+          NR_PASSWORD: ${{ secrets.NR_PASSWORD }}
+        run: |
+          python vstp_collector.py

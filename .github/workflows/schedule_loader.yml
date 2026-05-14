@@ -1,33 +1,36 @@
 name: Acton Bridge Schedule Loader
 
 on:
-  schedule:
-    # Network Rail JSON schedule full extract is usually available after around 06:00.
-    # Run at 07:15 UTC daily.
-    - cron: "15 7 * * *"
   workflow_dispatch:
+  schedule:
+    # Heavy-ish enrichment job. Run daily early morning, not every few minutes.
+    - cron: "18 03 * * *"
+
+concurrency:
+  group: acton-bridge-schedule-loader
+  cancel-in-progress: true
 
 jobs:
-  load_schedule:
+  load_schedules:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    timeout-minutes: 25
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
+          python-version: "3.11"
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Run schedule loader
         env:
-          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
-          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python schedule_loader.py
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          NETWORK_RAIL_USERNAME: ${{ secrets.NETWORK_RAIL_USERNAME }}
+          NETWORK_RAIL_PASSWORD: ${{ secrets.NETWORK_RAIL_PASSWORD }}
+          NR_USERNAME: ${{ secrets.NR_USERNAME }}
+          NR_PASSWORD: ${{ secrets.NR_PASSWORD }}
+        run: |
+          python schedule_loader.py
