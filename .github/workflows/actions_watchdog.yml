@@ -1,0 +1,142 @@
+name: Acton Bridge Actions Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron can be delayed, but this gives frequent checks.
+    - cron: '*/15 * * * *'
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: acton-bridge-actions-watchdog
+  cancel-in-progress: true
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check and restart stale workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          now_epoch=$(date -u +%s)
+
+          # Format:
+          # workflow_file:max_age_minutes
+          # Adjust names if your workflow filenames differ.
+          WATCHED_WORKFLOWS="
+          collector.yml:20
+          td_collector.yml:20
+          route_backfill_loop.yml:60
+          vstp_collector.yml:45
+          schedule_loader.yml:720
+          "
+
+          api() {
+            curl -sS \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$@"
+          }
+
+          dispatch_workflow() {
+            local wf="$1"
+            echo "Dispatching ${wf}..."
+            curl -sS -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${wf}/dispatches" \
+              -d '{"ref":"main"}' \
+              -o /tmp/dispatch.out -w "HTTP %{http_code}\n"
+            cat /tmp/dispatch.out || true
+            echo
+          }
+
+          for item in ${WATCHED_WORKFLOWS}; do
+            wf="${item%%:*}"
+            max_age_min="${item##*:}"
+            max_age_sec=$((max_age_min * 60))
+
+            echo "---- Checking ${wf} (max age ${max_age_min} min) ----"
+
+            # Confirm workflow exists and is active.
+            wf_meta=$(api "https://api.github.com/repos/${REPO}/actions/workflows/${wf}")
+            state=$(echo "$wf_meta" | jq -r '.state // "missing"')
+            if [ "$state" = "missing" ] || [ "$state" = "null" ]; then
+              echo "Workflow ${wf} not found. Check filename. Skipping."
+              continue
+            fi
+
+            if [ "$state" != "active" ]; then
+              echo "Workflow ${wf} state is ${state}. Trying to enable it..."
+              curl -sS -X PUT \
+                -H "Authorization: Bearer ${GH_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${REPO}/actions/workflows/${wf}/enable" \
+                -o /tmp/enable.out -w "HTTP %{http_code}\n"
+              cat /tmp/enable.out || true
+              echo
+            fi
+
+            runs=$(api "https://api.github.com/repos/${REPO}/actions/workflows/${wf}/runs?per_page=1&branch=main")
+            run_count=$(echo "$runs" | jq -r '.total_count // 0')
+
+            if [ "$run_count" = "0" ]; then
+              echo "No runs found for ${wf}; dispatching."
+              dispatch_workflow "$wf"
+              continue
+            fi
+
+            status=$(echo "$runs" | jq -r '.workflow_runs[0].status // "unknown"')
+            conclusion=$(echo "$runs" | jq -r '.workflow_runs[0].conclusion // ""')
+            created_at=$(echo "$runs" | jq -r '.workflow_runs[0].created_at // ""')
+            updated_at=$(echo "$runs" | jq -r '.workflow_runs[0].updated_at // .workflow_runs[0].created_at // ""')
+            html_url=$(echo "$runs" | jq -r '.workflow_runs[0].html_url // ""')
+
+            if [ -z "$updated_at" ] || [ "$updated_at" = "null" ]; then
+              echo "No updated_at found; dispatching ${wf}."
+              dispatch_workflow "$wf"
+              continue
+            fi
+
+            updated_epoch=$(date -u -d "$updated_at" +%s)
+            age_sec=$((now_epoch - updated_epoch))
+            age_min=$((age_sec / 60))
+
+            echo "Latest run: status=${status}, conclusion=${conclusion:-none}, age=${age_min} min"
+            echo "$html_url"
+
+            if [ "$status" = "in_progress" ] || [ "$status" = "queued" ] || [ "$status" = "waiting" ]; then
+              if [ "$age_sec" -gt "$max_age_sec" ]; then
+                echo "Run appears stuck/stale; dispatching another short run."
+                dispatch_workflow "$wf"
+              else
+                echo "Workflow currently active; no action."
+              fi
+              continue
+            fi
+
+            if [ "$conclusion" != "success" ]; then
+              echo "Latest conclusion was ${conclusion}; dispatching."
+              dispatch_workflow "$wf"
+              continue
+            fi
+
+            if [ "$age_sec" -gt "$max_age_sec" ]; then
+              echo "Latest success is stale; dispatching."
+              dispatch_workflow "$wf"
+              continue
+            fi
+
+            echo "${wf} is fresh enough."
+          done
