@@ -1,0 +1,33 @@
+name: Acton Bridge Pathing Power Injector v6
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_date:
+        description: "Date to process YYYY-MM-DD (blank = today UTC)"
+        required: false
+        default: ""
+  schedule:
+    - cron: '13,43 * * * *'
+
+concurrency:
+  group: acton-bridge-pathing-power-injector-v6
+  cancel-in-progress: true
+
+jobs:
+  inject_pathing_power:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Inject pathing power v6
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          STATION_CRS: ACB
+          RUN_DATE: ${{ github.event.inputs.run_date }}
+        run: node scripts/inject-pathing-power-v6.js
