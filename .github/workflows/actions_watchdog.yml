@@ -3,8 +3,9 @@ name: Acton Bridge Actions Watchdog
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron is UTC and can drift/delay. This gives a regular self-healing check.
-    - cron: '*/15 * * * *'
+    # GitHub schedules are UTC and may be delayed a few minutes.
+    # This checks every 10 minutes, but only dispatches stale jobs.
+    - cron: '*/10 * * * *'
 
 permissions:
   actions: write
@@ -12,118 +13,102 @@ permissions:
 
 concurrency:
   group: acton-bridge-actions-watchdog
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   watchdog:
-    name: Check and restart stale collectors
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Check workflow freshness and dispatch stale jobs
+      - name: Check and restart stale Acton Bridge workflows
         env:
           GH_TOKEN: ${{ github.token }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-          BRANCH: ${{ github.ref_name }}
-        shell: bash
+          REPO: ${{ github.repository }}
+          # workflow_file.yml:freshness_minutes
+          # Freshness windows are deliberately wider because your collectors can run 15–40 minutes.
+          WATCHED_WORKFLOWS: |
+            collector.yml:75
+            td_collector.yml:45
+            route_backfill_loop.yml:120
+            vstp_collector.yml:90
+            schedule_loader.yml:720
+            pathing_power_injector.yml:180
         run: |
-          set -euo pipefail
-
-          echo "Acton Bridge Actions Watchdog running at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "Repository: ${OWNER}/${REPO}"
-          echo "Branch: ${BRANCH}"
-
-          # Format: workflow_file:freshness_minutes
-          # Freshness is deliberately longer than the normal runtime so the watchdog
-          # does not start duplicate jobs while collectors are still running.
-          WATCHED_WORKFLOWS="
-          collector.yml:75
-          td_collector.yml:45
-          route_backfill_loop.yml:120
-          vstp_collector.yml:90
-          schedule_loader.yml:720
-          "
-
-          api_get() {
-            local url="$1"
-            curl -fsSL \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$url"
-          }
-
-          api_post_empty() {
-            local url="$1"
-            local data="$2"
-            curl -fsSL -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              -d "$data" \
-              "$url" >/dev/null
-          }
+          set -u
+          echo "Acton Bridge watchdog started at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "Repository: $REPO"
+          echo
 
           now_epoch=$(date -u +%s)
 
-          while IFS=: read -r workflow_file max_age_minutes; do
-            workflow_file="$(echo "${workflow_file:-}" | xargs)"
-            max_age_minutes="$(echo "${max_age_minutes:-}" | xargs)"
+          while IFS=: read -r workflow_file freshness_minutes; do
+            workflow_file="$(echo "$workflow_file" | xargs)"
+            freshness_minutes="$(echo "$freshness_minutes" | xargs)"
             [ -z "$workflow_file" ] && continue
-            [ -z "$max_age_minutes" ] && continue
 
-            echo ""
-            echo "Checking ${workflow_file} — stale after ${max_age_minutes} min"
+            echo "============================================================"
+            echo "Checking $workflow_file (freshness ${freshness_minutes} min)"
 
-            # If a run is already active, do not dispatch another copy.
-            active_json=$(api_get "https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${workflow_file}/runs?per_page=10") || {
-              echo "Could not read workflow ${workflow_file}. Check file name or Actions permissions."
-              continue
-            }
-
-            active_count=$(echo "$active_json" | jq '[.workflow_runs[] | select(.status == "queued" or .status == "in_progress" or .status == "waiting" or .status == "requested" or .status == "pending")] | length')
-            if [ "$active_count" -gt 0 ]; then
-              echo "${workflow_file}: already has ${active_count} active run(s). Skipping."
+            # Confirm the workflow exists. If not, skip cleanly.
+            if ! gh api "repos/$REPO/actions/workflows/$workflow_file" >/tmp/workflow.json 2>/tmp/workflow_err.txt; then
+              echo "SKIP: $workflow_file not found or not accessible."
+              cat /tmp/workflow_err.txt || true
               continue
             fi
 
-            latest_completed=$(echo "$active_json" | jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.created_at) | reverse | .[0] // empty')
+            state=$(jq -r '.state // "unknown"' /tmp/workflow.json)
+            echo "Workflow state: $state"
+            if [ "$state" != "active" ]; then
+              echo "SKIP: $workflow_file is not active. Enable it in GitHub Actions first."
+              continue
+            fi
 
-            should_dispatch="false"
+            # If there is already an active run, do not dispatch another.
+            active_count=$(gh api "repos/$REPO/actions/workflows/$workflow_file/runs?per_page=10" \
+              --jq '[.workflow_runs[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length' 2>/dev/null || echo 0)
+
+            if [ "${active_count:-0}" -gt 0 ]; then
+              echo "OK: $workflow_file already has $active_count active run(s). Not dispatching."
+              continue
+            fi
+
+            last_json=$(gh api "repos/$REPO/actions/workflows/$workflow_file/runs?per_page=1" 2>/dev/null || echo '{}')
+            last_created=$(echo "$last_json" | jq -r '.workflow_runs[0].created_at // empty')
+            last_status=$(echo "$last_json" | jq -r '.workflow_runs[0].status // empty')
+            last_conclusion=$(echo "$last_json" | jq -r '.workflow_runs[0].conclusion // empty')
+            last_event=$(echo "$last_json" | jq -r '.workflow_runs[0].event // empty')
+
+            if [ -z "$last_created" ]; then
+              echo "No previous run found. Dispatching $workflow_file."
+              gh workflow run "$workflow_file" --repo "$REPO" --ref "${GITHUB_REF_NAME:-main}"
+              continue
+            fi
+
+            last_epoch=$(date -u -d "$last_created" +%s)
+            age_min=$(( (now_epoch - last_epoch) / 60 ))
+            echo "Last run: $last_created UTC, age ${age_min} min, status=$last_status, conclusion=$last_conclusion, event=$last_event"
+
+            should_dispatch=0
             reason=""
 
-            if [ -z "$latest_completed" ] || [ "$latest_completed" = "null" ]; then
-              should_dispatch="true"
-              reason="no completed run found"
-            else
-              conclusion=$(echo "$latest_completed" | jq -r '.conclusion // "unknown"')
-              completed_at=$(echo "$latest_completed" | jq -r '.updated_at // .created_at')
-              completed_epoch=$(date -u -d "$completed_at" +%s 2>/dev/null || echo 0)
-              age_minutes=$(( (now_epoch - completed_epoch) / 60 ))
-              echo "Last completed: ${completed_at}, conclusion=${conclusion}, age=${age_minutes} min"
-
-              if [ "$conclusion" != "success" ]; then
-                should_dispatch="true"
-                reason="last conclusion was ${conclusion}"
-              elif [ "$age_minutes" -gt "$max_age_minutes" ]; then
-                should_dispatch="true"
-                reason="last successful run is stale: ${age_minutes} min old"
-              else
-                echo "${workflow_file}: fresh enough."
-              fi
+            if [ "$age_min" -gt "$freshness_minutes" ]; then
+              should_dispatch=1
+              reason="stale: age ${age_min} min > ${freshness_minutes} min"
             fi
 
-            if [ "$should_dispatch" = "true" ]; then
-              echo "Dispatching ${workflow_file}: ${reason}"
-              # workflow_dispatch requires the target workflow itself to include: on: workflow_dispatch
-              api_post_empty \
-                "https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${workflow_file}/dispatches" \
-                "{\"ref\":\"${BRANCH}\"}" || {
-                  echo "Failed to dispatch ${workflow_file}. Make sure it has workflow_dispatch and is enabled."
-                  continue
-                }
-              echo "Dispatched ${workflow_file}."
+            if [ "$last_conclusion" = "failure" ] || [ "$last_conclusion" = "timed_out" ] || [ "$last_conclusion" = "cancelled" ] || [ "$last_conclusion" = "startup_failure" ]; then
+              should_dispatch=1
+              reason="last conclusion was $last_conclusion"
+            fi
+
+            if [ "$should_dispatch" -eq 1 ]; then
+              echo "DISPATCH: $workflow_file because $reason"
+              gh workflow run "$workflow_file" --repo "$REPO" --ref "${GITHUB_REF_NAME:-main}"
+            else
+              echo "OK: $workflow_file is fresh enough."
             fi
           done <<< "$WATCHED_WORKFLOWS"
+
+          echo
+          echo "Watchdog finished at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
