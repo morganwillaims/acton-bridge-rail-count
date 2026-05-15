@@ -2,39 +2,26 @@ name: Acton Bridge Public Snapshot Builder
 
 on:
   workflow_dispatch:
-    inputs:
-      snapshot_date:
-        description: Optional YYYY-MM-DD date to rebuild. Leave blank for today UK.
-        required: false
-        type: string
   schedule:
-    # Every 10 minutes. GitHub may delay scheduled jobs, but the watchdog can restart it if stale.
     - cron: '*/10 * * * *'
 
 permissions:
   contents: read
 
-concurrency:
-  group: acton-bridge-public-snapshot-builder
-  cancel-in-progress: true
-
 jobs:
-  build-public-snapshot:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-
+          node-version: 20
       - name: Build and save public snapshot
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           STATION_CRS: ACB
-          SNAPSHOT_DATE: ${{ inputs.snapshot_date }}
         run: node scripts/build-public-snapshot.js
