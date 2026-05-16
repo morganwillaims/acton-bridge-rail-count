@@ -1,14 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "acton-bridge-github-watchdog",
+  "main": "cloudflare-github-actions-watchdog-worker-v1.js",
   "compatibility_date": "2026-05-16",
   "observability": {
     "enabled": true
   },
-  "assets": {
-    "directory": "."
-  },
-  "compatibility_flags": [
-    "nodejs_compat"
-  ]
+  "triggers": {
+    "crons": [
+      "*/10 * * * *"
+    ]
+  }
 }
