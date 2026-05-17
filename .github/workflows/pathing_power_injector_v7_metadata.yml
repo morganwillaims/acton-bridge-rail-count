@@ -1,0 +1,28 @@
+name: Acton Bridge Pathing Power Injector v7 Metadata
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Metadata overlay does not need to run constantly; watchdog can dispatch if stale.
+    - cron: '17 */3 * * *'
+
+concurrency:
+  group: acton-bridge-pathing-power-injector-v7-metadata
+  cancel-in-progress: true
+
+jobs:
+  inject_pathing_metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Inject trusted pathing metadata
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          DAYS_BACK: '2'
+        run: node scripts/inject-pathing-power-v7-metadata.js
