@@ -29,4 +29,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           STATION_CRS: ACB
+          SNAPSHOT_DATE: ${{ github.event.inputs.snapshot_date }}
         run: node scripts/build-public-snapshot.js
