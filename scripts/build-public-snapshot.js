@@ -145,7 +145,7 @@ async function fetchMovements(date) {
     try {
       const path = `station_movements?select=${columns}&station_crs=eq.${encodeURIComponent(STATION_CRS)}&running_date=eq.${encodeURIComponent(date)}&order=actual_time.asc&limit=2000`;
       const rows = await supabase(path);
-      console.log('SNAPSHOT BUILDER V3 NO-LOCO SELECT ACTIVE');
+      console.log('SNAPSHOT BUILDER V3.1 PATHING FIELDS SELECT ACTIVE');
       console.log(`Fetched station_movements with columns: ${columns}`);
       return rows || [];
     } catch (err) {
