@@ -131,9 +131,10 @@ async function supabase(path, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 async function fetchMovements(date) {
-  // Do not include optional columns like loco/pathing here. If a column does not exist,
-  // PostgREST rejects the entire request. v3 prioritises reliability.
+  // First try the full pathing-field column set. If any optional column is missing,
+  // fall back to the older safe column sets so the snapshot still builds.
   const columnSets = [
+    'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,route_enrichment_source,pathing_power,pathing_power_label,pathing_power_source,planned_power,power_type,traction_type,traction_class,timing_load,operating_characteristics,stock_type,speed,pathing_power_updated_at',
     'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,route_enrichment_source',
     'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform',
     'running_date,train_id,origin,destination,toc,planned_time,actual_time,status,source,platform'
@@ -179,7 +180,21 @@ function mergeClose(rows) {
         platform: ex.platform && ex.platform !== '—' ? ex.platform : row.platform,
         origin: isBadRouteName(ex.origin) ? row.origin : ex.origin,
         destination: isBadRouteName(ex.destination) ? row.destination : ex.destination,
-        toc: ex.toc || row.toc
+        toc: ex.toc || row.toc,
+        pathing_power: ex.pathing_power && ex.pathing_power !== 'unknown' ? ex.pathing_power : row.pathing_power,
+        pathing_power_label: ex.pathing_power && ex.pathing_power !== 'unknown' ? ex.pathing_power_label : row.pathing_power_label,
+        pathing_power_short_label: ex.pathing_power && ex.pathing_power !== 'unknown' ? ex.pathing_power_short_label : row.pathing_power_short_label,
+        pathing_power_source: ex.pathing_power && ex.pathing_power !== 'unknown' ? ex.pathing_power_source : row.pathing_power_source,
+        pathing_power_raw: ex.pathing_power && ex.pathing_power !== 'unknown' ? ex.pathing_power_raw : row.pathing_power_raw,
+        planned_power: ex.planned_power || row.planned_power,
+        power_type: ex.power_type || row.power_type,
+        traction_type: ex.traction_type || row.traction_type,
+        traction_class: ex.traction_class || row.traction_class,
+        timing_load: ex.timing_load || row.timing_load,
+        operating_characteristics: ex.operating_characteristics || row.operating_characteristics,
+        stock_type: ex.stock_type || row.stock_type,
+        speed: ex.speed || row.speed,
+        pathing_power_updated_at: ex.pathing_power_updated_at || row.pathing_power_updated_at
       };
     }
   }
@@ -225,11 +240,20 @@ async function main() {
       status: r.status || 'Passed',
       source: r.source || 'Network Rail TRUST',
       loco: '',
-      pathing_power: p.code,
-      pathing_power_label: p.label,
-      pathing_power_short_label: p.short_label,
-      pathing_power_source: p.source,
-      pathing_power_raw: p.raw,
+      pathing_power: cleanText(r.pathing_power) || p.code,
+      pathing_power_label: cleanText(r.pathing_power_label) || p.label,
+      pathing_power_short_label: cleanText(r.pathing_power_label) || p.short_label,
+      pathing_power_source: cleanText(r.pathing_power_source) || p.source,
+      pathing_power_raw: cleanText(r.pathing_power_raw) || p.raw,
+      planned_power: cleanText(r.planned_power),
+      power_type: cleanText(r.power_type),
+      traction_type: cleanText(r.traction_type),
+      traction_class: cleanText(r.traction_class),
+      timing_load: cleanText(r.timing_load),
+      operating_characteristics: cleanText(r.operating_characteristics),
+      stock_type: cleanText(r.stock_type),
+      speed: cleanText(r.speed),
+      pathing_power_updated_at: cleanText(r.pathing_power_updated_at),
       route_enrichment_source: routeSource
     };
   }).filter(r => r.train_id).sort((a,b) => (parseRailTimeToMinutes(a.time) ?? 99999) - (parseRailTimeToMinutes(b.time) ?? 99999));
@@ -267,7 +291,7 @@ async function main() {
     generated_at: generatedAt,
     generated_uk_time: ukTimeString(),
     cache_seconds:CACHE_SECONDS,
-    snapshot_source:'github_public_snapshot_builder_v3_no_loco_column_fix',
+    snapshot_source:'github_public_snapshot_builder_v3_pathing_fields',
     raw_rows_count: rawRows.length,
     deduped_rows_count: rows.length,
     route_enrichment:{ version:'public_snapshot_builder_v2', order:'station_movements minimal columns -> safe display fallbacks', schedule_status:'snapshot', vstp_status:'snapshot' },
