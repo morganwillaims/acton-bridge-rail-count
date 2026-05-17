@@ -134,8 +134,8 @@ async function fetchMovements(date) {
   // First try the full pathing-field column set. If any optional column is missing,
   // fall back to the older safe column sets so the snapshot still builds.
   const columnSets = [
-    'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,pathing_power,pathing_power_label,pathing_power_source,planned_power,power_type,traction_type,traction_class,timing_load,operating_characteristics,stock_type,speed,pathing_power_updated_at',
-    'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform',
+    'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,route_enrichment_source,pathing_power,pathing_power_label,pathing_power_source,planned_power,power_type,traction_type,traction_class,timing_load,operating_characteristics,stock_type,speed,pathing_power_updated_at',
+    'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform,route_enrichment_source',
     'id,running_date,train_id,train_type,origin,destination,toc,planned_time,actual_time,status,source,platform',
     'running_date,train_id,origin,destination,toc,planned_time,actual_time,status,source,platform'
   ];
@@ -145,7 +145,7 @@ async function fetchMovements(date) {
     try {
       const path = `station_movements?select=${columns}&station_crs=eq.${encodeURIComponent(STATION_CRS)}&running_date=eq.${encodeURIComponent(date)}&order=actual_time.asc&limit=2000`;
       const rows = await supabase(path);
-      console.log('SNAPSHOT BUILDER V3.1 PATHING FIELDS SELECT ACTIVE');
+      console.log('SNAPSHOT BUILDER V3 NO-LOCO SELECT ACTIVE');
       console.log(`Fetched station_movements with columns: ${columns}`);
       return rows || [];
     } catch (err) {
@@ -291,7 +291,7 @@ async function main() {
     generated_at: generatedAt,
     generated_uk_time: ukTimeString(),
     cache_seconds:CACHE_SECONDS,
-    snapshot_source:'github_public_snapshot_builder_v3_1_pathing_fields_no_route_enrichment_column',
+    snapshot_source:'github_public_snapshot_builder_v3_pathing_fields',
     raw_rows_count: rawRows.length,
     deduped_rows_count: rows.length,
     route_enrichment:{ version:'public_snapshot_builder_v2', order:'station_movements minimal columns -> safe display fallbacks', schedule_status:'snapshot', vstp_status:'snapshot' },
