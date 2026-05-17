@@ -1,250 +1,208 @@
 #!/usr/bin/env python3
 """
-Acton Bridge Schedule Loader — pathing capture version
+Acton Bridge Schedule Loader - Full Raw + Pathing Capture v1
 
-Purpose
-- Load schedule records from a JSON source file/URL if provided.
-- Upsert service-level schedule rows into public.schedule_services.
-- Upsert schedule locations into public.schedule_locations when included.
-- Capture pathing/traction fields for later freight service detail display.
+Replacement/template schedule_loader.py.
 
-Environment variables
-- SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY
-- SCHEDULE_SOURCE_URL optional JSON endpoint/file URL
-- SCHEDULE_SOURCE_FILE optional local JSON file
+It preserves the full raw source schedule record in schedule_services.raw and
+extracts pathing/power/timing-load fields if the upstream source contains them.
 
-This is a safe generic replacement. If your old schedule loader was doing heavy Network Rail CIF downloads,
-keep that logic and copy the extraction/upsert field additions from this file.
+If your existing schedule_loader.py already downloads Network Rail data correctly,
+you can instead merge these functions into it:
+- first_value
+- extract_pathing_fields
+- build_service_row
 """
 
-from __future__ import annotations
+import os, sys, json, gzip, urllib.request, urllib.error
+from datetime import datetime, timezone
 
-import json
-import os
-from datetime import datetime, timezone, date
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from urllib import request, error
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or ""
+SCHEDULE_SOURCE_URL = os.environ.get("SCHEDULE_SOURCE_URL", "")
+SCHEDULE_SOURCE_FILE = os.environ.get("SCHEDULE_SOURCE_FILE", "")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or ""
-SCHEDULE_SOURCE_URL = os.getenv("SCHEDULE_SOURCE_URL", "")
-SCHEDULE_SOURCE_FILE = os.getenv("SCHEDULE_SOURCE_FILE", "")
+def log(msg):
+    print(f"[schedule_loader_full_raw_v1] {msg}", flush=True)
 
-SERVICE_TABLE = "schedule_services"
-LOCATION_TABLE = "schedule_locations"
-
-PATHING_FIELDS = [
-    "power_type",
-    "planned_power",
-    "traction_type",
-    "traction_class",
-    "timing_load",
-    "operating_characteristics",
-    "stock_type",
-    "speed",
-]
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def log(msg: str) -> None:
-    print(f"[{now_iso()}] {msg}", flush=True)
-
-
-def clean(value: Any) -> Optional[str]:
-    if value is None:
+def clean(v):
+    if v is None or v == "" or v == [] or v == {}:
         return None
-    s = str(value).strip()
-    return s if s else None
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, separators=(",", ":"))
+    s = str(v).strip()
+    return s or None
 
-
-def first(record: Dict[str, Any], *keys: str) -> Optional[str]:
-    for key in keys:
-        if key in record and clean(record.get(key)):
-            return clean(record.get(key))
-        lower = key.lower()
-        for k, v in record.items():
-            if str(k).lower() == lower and clean(v):
-                return clean(v)
+def first_value(obj, keys):
+    if not isinstance(obj, dict):
+        return None
+    for k in keys:
+        v = obj.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    for ck in ("new_schedule_segment", "applicable_timetable", "schedule", "service", "record"):
+        nested = obj.get(ck)
+        if isinstance(nested, dict):
+            v = first_value(nested, keys)
+            if v not in (None, "", [], {}):
+                return v
     return None
 
+def normalise_power(v):
+    s = clean(v)
+    if not s:
+        return None
+    u = s.upper().strip()
+    if u in ("D", "DM", "DIESEL", "DSL") or "DIESEL" in u:
+        if "ELECTRIC" in u:
+            return "diesel_electric"
+        return "diesel"
+    if u in ("E", "EL", "ELECTRIC", "ELEC") or "ELECTRIC" in u:
+        return "electric"
+    if u in ("ED", "DE", "D/E", "E/D", "BI", "BI-MODE", "BIMODE"):
+        return "diesel_electric"
+    return u.lower()
 
-def parse_date(value: Optional[str]) -> str:
-    if not value:
-        return date.today().isoformat()
-    s = value.strip()
-    for fmt in ["%Y-%m-%d", "%Y%m%d", "%d/%m/%Y"]:
+def pathing_label(power):
+    if power == "diesel":
+        return "Pathed as diesel loco"
+    if power == "electric":
+        return "Pathed as electric loco"
+    if power == "diesel_electric":
+        return "Pathed as diesel/electric"
+    if power:
+        return f"Pathed as {power}"
+    return None
+
+def extract_pathing_fields(raw):
+    power_type = clean(first_value(raw, ["power_type","CIF_power_type","cif_power_type","traction_power_type","power"]))
+    planned_power = clean(first_value(raw, ["planned_power","plannedPower","planned_power_type","CIF_power_type"]))
+    traction_type = clean(first_value(raw, ["traction_type","tractionType","traction","CIF_traction_type","cif_traction_type"]))
+    traction_class = clean(first_value(raw, ["traction_class","tractionClass","CIF_traction_class","cif_traction_class","train_class","class"]))
+    timing_load = clean(first_value(raw, ["timing_load","timingLoad","CIF_timing_load","cif_timing_load","load","trailing_load","trailingLoad"]))
+    operating_characteristics = clean(first_value(raw, ["operating_characteristics","operatingCharacteristics","CIF_operating_characteristics","cif_operating_characteristics","operating_chars"]))
+    stock_type = clean(first_value(raw, ["stock_type","stockType","stock","rolling_stock"]))
+    speed = clean(first_value(raw, ["speed","max_speed","planned_speed","CIF_speed","cif_speed","maximum_speed","plannedSpeed"]))
+
+    power = normalise_power(planned_power or power_type or traction_type)
+    has_any = bool(power or timing_load or speed or traction_class or operating_characteristics or stock_type)
+
+    return {
+        "power_type": power_type,
+        "planned_power": planned_power,
+        "traction_type": traction_type,
+        "traction_class": traction_class,
+        "timing_load": timing_load,
+        "operating_characteristics": operating_characteristics,
+        "stock_type": stock_type,
+        "speed": speed,
+        "pathing_power": power,
+        "pathing_power_label": pathing_label(power),
+        "pathing_power_source": "schedule_loader_full_raw_v1" if has_any else None,
+        "pathing_power_updated_at": datetime.now(timezone.utc).isoformat() if has_any else None,
+    }
+
+def build_service_row(raw):
+    train_uid = clean(first_value(raw, ["train_uid","CIF_train_uid","cif_train_uid","uid"]))
+    if not train_uid:
+        raise ValueError("missing train_uid/CIF_train_uid")
+
+    return {
+        "train_uid": train_uid,
+        "stp_indicator": clean(first_value(raw, ["stp_indicator","CIF_stp_indicator","cif_stp_indicator"])),
+        "schedule_start_date": clean(first_value(raw, ["schedule_start_date","CIF_schedule_start_date","start_date"])),
+        "schedule_end_date": clean(first_value(raw, ["schedule_end_date","CIF_schedule_end_date","end_date"])),
+        "days_runs": clean(first_value(raw, ["days_runs","schedule_days_runs","CIF_schedule_days_runs"])),
+        "signalling_id": clean(first_value(raw, ["signalling_id","CIF_train_identity","train_identity","headcode"])),
+        "atoc_code": clean(first_value(raw, ["atoc_code","CIF_atoc_code","toc"])),
+        "train_status": clean(first_value(raw, ["train_status","CIF_train_status"])),
+        "train_category": clean(first_value(raw, ["train_category","CIF_train_category","category"])),
+        "origin_tiploc": clean(first_value(raw, ["origin_tiploc","origin","from_tiploc"])),
+        "origin_name": clean(first_value(raw, ["origin_name","origin_display","from_name"])),
+        "origin_departure": clean(first_value(raw, ["origin_departure","origin_dep","departure"])),
+        "destination_tiploc": clean(first_value(raw, ["destination_tiploc","destination","to_tiploc"])),
+        "destination_name": clean(first_value(raw, ["destination_name","destination_display","to_name"])),
+        "destination_arrival": clean(first_value(raw, ["destination_arrival","destination_arr","arrival"])),
+        "raw": raw,
+        **extract_pathing_fields(raw),
+    }
+
+def read_source():
+    if SCHEDULE_SOURCE_FILE:
+        with open(SCHEDULE_SOURCE_FILE, "rb") as f:
+            data = f.read()
+    elif SCHEDULE_SOURCE_URL:
+        log(f"Downloading {SCHEDULE_SOURCE_URL}")
+        req = urllib.request.Request(SCHEDULE_SOURCE_URL, headers={"User-Agent": "acton-bridge-schedule-loader"})
+        with urllib.request.urlopen(req, timeout=120) as r:
+            data = r.read()
+    else:
+        raise RuntimeError("Set SCHEDULE_SOURCE_URL or SCHEDULE_SOURCE_FILE, or merge this patch into your current loader.")
+
+    if data[:2] == b"\\x1f\\x8b":
+        data = gzip.decompress(data)
+    text = data.decode("utf-8", errors="replace").strip()
+
+    if text.startswith("["):
+        arr = json.loads(text)
+        return [x for x in arr if isinstance(x, dict)]
+    if text.startswith("{"):
+        obj = json.loads(text)
+        for key in ("services","schedules","schedule_services","data","JsonScheduleV1"):
+            if isinstance(obj.get(key), list):
+                return [x for x in obj[key] if isinstance(x, dict)]
+        return [obj]
+
+    rows = []
+    for line in text.splitlines():
         try:
-            return datetime.strptime(s[:10] if fmt == "%Y-%m-%d" else s, fmt).date().isoformat()
+            o = json.loads(line)
+            if isinstance(o, dict):
+                rows.append(o)
         except Exception:
             pass
-    return date.today().isoformat()
-
-
-def derive_power_label(raw: Dict[str, Any]) -> Tuple[str, str]:
-    vals = " ".join(str(raw.get(k) or "") for k in PATHING_FIELDS).upper()
-    if not vals.strip():
-        return "unknown", "Pathing unknown"
-    if any(x in vals for x in ["ELECTRIC", "AC ELECTRIC", " OHE", "ELECTRIC LOCO"]):
-        return "electric", "Pathed as electric loco"
-    if any(x in vals for x in ["DIESEL", "DIESEL LOCO"]):
-        return "diesel", "Pathed as diesel loco"
-    for key in ["power_type", "planned_power", "traction_type"]:
-        v = str(raw.get(key) or "").strip().upper()
-        if v in {"E", "EL", "ELEC"}:
-            return "electric", "Pathed as electric loco"
-        if v in {"D", "DE", "DSL"}:
-            return "diesel", "Pathed as diesel loco"
-        if v in {"ED", "DE/ED", "BI", "BIMODE", "BI-MODE", "D/E", "E/D"}:
-            return "diesel_electric", "Pathed diesel/electric"
-    return "unknown", "Pathing unknown"
-
-
-def extract_pathing_fields(record: Dict[str, Any]) -> Dict[str, Optional[str]]:
-    out: Dict[str, Optional[str]] = {
-        "power_type": first(record, "power_type", "powerType", "power", "traction_power", "plannedTraction", "CIF_power_type"),
-        "planned_power": first(record, "planned_power", "plannedPower", "planned_power_type", "planned_power_code"),
-        "traction_type": first(record, "traction_type", "tractionType", "traction", "traction_code"),
-        "traction_class": first(record, "traction_class", "tractionClass", "train_class", "trainClass", "traction_class_code"),
-        "timing_load": first(record, "timing_load", "timingLoad", "timing_load_code", "load", "trailing_load", "CIF_timing_load"),
-        "operating_characteristics": first(record, "operating_characteristics", "operatingCharacteristics", "op_chars", "operating_characteristics_code", "CIF_operating_characteristics"),
-        "stock_type": first(record, "stock_type", "stockType", "stock", "rolling_stock"),
-        "speed": first(record, "speed", "max_speed", "planned_speed", "maxSpeed", "CIF_speed"),
-    }
-    pwr, label = derive_power_label({k: v for k, v in out.items() if v is not None})
-    out["pathing_power"] = pwr
-    out["pathing_power_label"] = label
-    out["pathing_power_source"] = "schedule_loader" if pwr != "unknown" else "schedule_loader_no_source_field"
-    return out
-
-
-def extract_service(record: Dict[str, Any]) -> Dict[str, Any]:
-    headcode = first(record, "train_id", "headcode", "identity", "trainIdentity") or ""
-    uid = first(record, "uid", "train_uid", "CIF_train_uid", "trainUid")
-    start_date = parse_date(first(record, "running_date", "date", "schedule_start_date", "start_date", "service_date"))
-    end_date = parse_date(first(record, "schedule_end_date", "end_date")) if first(record, "schedule_end_date", "end_date") else None
-    origin = first(record, "origin", "origin_tiploc", "origin_name", "from")
-    destination = first(record, "destination", "destination_tiploc", "destination_name", "to")
-    stp = first(record, "stp_indicator", "stp", "STP_indicator") or "P"
-    toc = first(record, "toc", "atoc_code", "operator", "operator_code")
-    row: Dict[str, Any] = {
-        "train_uid": uid,
-        "train_id": headcode,
-        "schedule_start_date": start_date,
-        "schedule_end_date": end_date,
-        "origin": origin,
-        "destination": destination,
-        "stp_indicator": stp,
-        "toc": toc,
-        "updated_at": now_iso(),
-    }
-    row.update(extract_pathing_fields(record))
-    return {k: v for k, v in row.items() if v is not None}
-
-
-def extract_locations(record: Dict[str, Any], service: Dict[str, Any]) -> List[Dict[str, Any]]:
-    candidates = record.get("locations") or record.get("schedule_locations") or record.get("Location") or []
-    if isinstance(candidates, dict):
-        candidates = [candidates]
-    rows: List[Dict[str, Any]] = []
-    for i, loc in enumerate(candidates if isinstance(candidates, list) else []):
-        if not isinstance(loc, dict):
-            continue
-        rows.append({k: v for k, v in {
-            "train_uid": service.get("train_uid"),
-            "train_id": service.get("train_id"),
-            "schedule_start_date": service.get("schedule_start_date"),
-            "location_order": i,
-            "tiploc": first(loc, "tiploc", "TIPLOC", "location", "location_tiploc"),
-            "arr": first(loc, "arr", "arrival", "arrival_time", "wtt_arrival"),
-            "dep": first(loc, "dep", "departure", "departure_time", "wtt_departure"),
-            "pass": first(loc, "pass", "pass_time", "wtt_pass"),
-            "platform": first(loc, "platform", "plat"),
-            "updated_at": now_iso(),
-        }.items() if v is not None})
     return rows
 
-
-def load_source() -> List[Dict[str, Any]]:
-    if SCHEDULE_SOURCE_FILE and os.path.exists(SCHEDULE_SOURCE_FILE):
-        log(f"Loading schedule source file {SCHEDULE_SOURCE_FILE}")
-        with open(SCHEDULE_SOURCE_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    elif SCHEDULE_SOURCE_URL:
-        log(f"Fetching schedule source URL {SCHEDULE_SOURCE_URL}")
-        req = request.Request(SCHEDULE_SOURCE_URL, headers={"User-Agent": "ActonBridgeScheduleLoader/1.0"})
-        with request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    else:
-        log("No SCHEDULE_SOURCE_URL or SCHEDULE_SOURCE_FILE set. Nothing to load.")
-        return []
-    if isinstance(data, list):
-        return [x for x in data if isinstance(x, dict)]
-    for key in ["services", "schedules", "rows", "data", "items"]:
-        if isinstance(data, dict) and isinstance(data.get(key), list):
-            return [x for x in data[key] if isinstance(x, dict)]
-    if isinstance(data, dict):
-        return [data]
-    return []
-
-
-def supabase_upsert(table: str, rows: List[Dict[str, Any]], on_conflict: Optional[str] = None) -> None:
+def supabase_upsert(table, rows, conflict="train_uid"):
     if not rows:
         return
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY")
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    if on_conflict:
-        url += f"?on_conflict={on_conflict}"
-    body = json.dumps(rows).encode("utf-8")
-    req = request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-    })
+    url = f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={conflict}"
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(rows, separators=(",", ":"), default=str).encode(),
+        method="POST",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        },
+    )
     try:
-        with request.urlopen(req, timeout=60) as resp:
-            resp.read()
-    except error.HTTPError as e:
-        detail = e.read().decode("utf-8", "ignore")
-        raise RuntimeError(f"Supabase {e.code} upsert {table}: {detail}") from e
+        with urllib.request.urlopen(req, timeout=120) as r:
+            if r.status not in (200, 201, 204):
+                raise RuntimeError(f"Supabase HTTP {r.status}")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Supabase {e.code}: {e.read().decode(errors='replace')}")
 
-
-def chunks(items: List[Dict[str, Any]], size: int = 500) -> Iterable[List[Dict[str, Any]]]:
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
-
-
-def main() -> int:
-    log("SCHEDULE LOADER PATHING CAPTURE ACTIVE")
-    records = load_source()
-    if not records:
-        log("No schedule records found; exiting cleanly.")
-        return 0
-    services: List[Dict[str, Any]] = []
-    locations: List[Dict[str, Any]] = []
+def main():
+    log("Starting")
+    records = read_source()
+    rows, with_pathing = [], 0
     for rec in records:
-        svc = extract_service(rec)
-        if not svc.get("train_id") and not svc.get("train_uid"):
-            continue
-        services.append(svc)
-        locations.extend(extract_locations(rec, svc))
-    log(f"Prepared services={len(services)} locations={len(locations)}")
-    for batch in chunks(services):
-        supabase_upsert(SERVICE_TABLE, batch, on_conflict="train_uid,schedule_start_date")
-    for batch in chunks(locations):
         try:
-            supabase_upsert(LOCATION_TABLE, batch, on_conflict="train_uid,schedule_start_date,location_order")
-        except Exception as exc:
-            log(f"Location upsert skipped/failed: {exc}")
-            break
-    log("Schedule loader complete")
-    return 0
-
+            row = build_service_row(rec)
+            if row.get("pathing_power") or row.get("timing_load") or row.get("speed"):
+                with_pathing += 1
+            rows.append(row)
+        except Exception as e:
+            log(f"Skipped record: {e}")
+    log(f"Rows built: {len(rows)}; rows with pathing fields: {with_pathing}")
+    for i in range(0, len(rows), 200):
+        supabase_upsert("schedule_services", rows[i:i+200])
+    log("Done")
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
