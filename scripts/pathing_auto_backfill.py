@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Automatic Pathing Metadata Capture / Pathing Auto Backfill v1.1
+Automatic Pathing Metadata Capture / Pathing Auto Backfill v1.2
 
 Purpose
 -------
@@ -22,6 +22,13 @@ Optional env:
   LIMIT=5000                      default: 5000
   ENABLE_SAFE_FREIGHT_FALLBACK=true|false  default: true
   REQUIRE_ACB_LOCATION_MATCH=true|false     default: false
+
+Safety changes in v1.2
+----------------------
+- Do not apply fallback to ghost/empty rows with no time and no route names.
+- If a schedule/VSTP candidate matches but has no usable pathing metadata, allow
+  cautious freight fallback only when the movement itself is a real visible row.
+- Never guess traction_class.
 """
 
 from __future__ import annotations
@@ -398,10 +405,25 @@ def clean_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
+def has_real_visible_movement_context(row: Dict[str, Any]) -> bool:
+    """
+    Avoid applying fallback to empty duplicate/ghost rows.
+
+    A safe fallback is only useful for a real visible movement row, not for rows
+    that only contain a headcode and have no time/origin/destination context.
+    """
+    has_time = safe_time_minutes(row.get("planned_time") or row.get("actual_time")) is not None
+    has_route = bool(compact(row.get("origin")) or compact(row.get("destination")))
+    return has_time or has_route
+
+
 def fallback_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
     headcode = normalise_headcode(row.get("train_id"))
-    # Conservative fallback: only for clear freight headcodes. Never fill exact class.
+    # Conservative fallback: only for clear freight headcodes on real visible rows.
+    # Never fill exact class.
     if not is_freight_row(row) or not headcode or headcode[0] not in {"4", "6", "7"}:
+        return {}
+    if not has_real_visible_movement_context(row):
         return {}
     now = datetime.now(timezone.utc).isoformat()
     return {
@@ -560,7 +582,7 @@ def merge_updates(existing: Dict[str, Any], new_meta: Dict[str, Any]) -> Dict[st
 def main() -> int:
     cfg = load_config()
     db = SupabaseRest(cfg)
-    print("PATHING AUTO BACKFILL V1.1 ACTIVE")
+    print("PATHING AUTO BACKFILL V1.2 ACTIVE")
     print(f"Target date: {cfg.target_date}; station={cfg.station_code}; dry_run={cfg.dry_run}; safe_fallback={cfg.safe_fallback}")
 
     movements = fetch_station_movements(db, cfg)
@@ -579,6 +601,15 @@ def main() -> int:
 
         if service and source and score >= 75:
             meta = metadata_from_service(service, source)
+            # Some schedule/VSTP rows match the train but contain no pathing fields.
+            # In that case, use cautious fallback only if the station movement itself
+            # has real visible context. This fills useful table rows while avoiding
+            # blank ghost rows.
+            if not meta and cfg.safe_fallback:
+                meta = fallback_metadata(movement)
+                if meta:
+                    final_source = "safe_freight_fallback"
+                    final_reasons.append(f"fallback used after matched service had no pathing metadata; best_score={score}")
         elif cfg.safe_fallback:
             meta = fallback_metadata(movement)
             final_source = "safe_freight_fallback" if meta else source
