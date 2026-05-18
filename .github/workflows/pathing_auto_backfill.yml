@@ -1,0 +1,57 @@
+name: Pathing Auto Backfill v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Date to backfill, YYYY-MM-DD. Leave blank for today UK time."
+        required: false
+        default: ""
+      dry_run:
+        description: "true = preview only, false = write to station_movements"
+        required: false
+        default: "false"
+      enable_safe_freight_fallback:
+        description: "Use cautious likely diesel-loco fallback when schedule/VSTP metadata is missing"
+        required: false
+        default: "true"
+  schedule:
+    # Frequent enough to enrich same-day live rows without touching the schedule loader.
+    - cron: "*/15 * * * *"
+
+jobs:
+  pathing-auto-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TARGET_DATE: ${{ github.event.inputs.target_date }}
+      DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+      ENABLE_SAFE_FREIGHT_FALLBACK: ${{ github.event.inputs.enable_safe_freight_fallback || 'true' }}
+      STATION_CODE: ACB
+      LIMIT: "5000"
+      REQUIRE_ACB_LOCATION_MATCH: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Syntax check pathing auto backfill
+        run: python -m py_compile scripts/pathing_auto_backfill.py
+
+      - name: Run Pathing Auto Backfill v1
+        run: python scripts/pathing_auto_backfill.py
+
+      # Optional: uncomment this only if scripts/build-public-snapshot.js is already v3.2
+      # and you want the public snapshot refreshed immediately after metadata backfill.
+      # - name: Rebuild public snapshot after backfill
+      #   env:
+      #     SNAPSHOT_DATE: ${{ github.event.inputs.target_date }}
+      #   run: node scripts/build-public-snapshot.js
