@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Automatic Pathing Metadata Capture / Pathing Auto Backfill v1
+Automatic Pathing Metadata Capture / Pathing Auto Backfill v1.1
 
 Purpose
 -------
@@ -70,7 +70,7 @@ STATION_SELECT = ",".join([
     *METADATA_FIELDS,
 ])
 
-SERVICE_SELECT = ",".join([
+SCHEDULE_SERVICE_SELECT = ",".join([
     "id",
     "train_uid",
     "stp_indicator",
@@ -88,6 +88,39 @@ SERVICE_SELECT = ",".join([
     "destination_name",
     "destination_arrival",
     "raw",
+    "power_type",
+    "planned_power",
+    "traction_type",
+    "traction_class",
+    "timing_load",
+    "operating_characteristics",
+    "stock_type",
+    "speed",
+    "pathing_power",
+    "pathing_power_label",
+    "pathing_power_source",
+    "pathing_power_updated_at",
+])
+
+# IMPORTANT: vstp_services does not have train_status, train_category,
+# origin_departure, or destination_arrival in your current Supabase schema.
+VSTP_SERVICE_SELECT = ",".join([
+    "id",
+    "train_uid",
+    "signalling_id",
+    "origin_tiploc",
+    "origin_name",
+    "destination_tiploc",
+    "destination_name",
+    "atoc_code",
+    "schedule_start_date",
+    "schedule_end_date",
+    "days_runs",
+    "stp_indicator",
+    "transaction_type",
+    "raw",
+    "created_at",
+    "updated_at",
     "power_type",
     "planned_power",
     "traction_type",
@@ -462,8 +495,9 @@ def fetch_station_movements(db: SupabaseRest, cfg: Config) -> List[Dict[str, Any
 def fetch_services(db: SupabaseRest, table: str, headcode: str, target_date: str) -> List[Dict[str, Any]]:
     if not headcode:
         return []
+    select_cols = SCHEDULE_SERVICE_SELECT if table == "schedule_services" else VSTP_SERVICE_SELECT
     params = {
-        "select": SERVICE_SELECT,
+        "select": select_cols,
         "signalling_id": f"eq.{headcode}",
         "limit": "50",
         "order": "updated_at.desc.nullslast,created_at.desc.nullslast",
@@ -495,7 +529,12 @@ def best_match_for(db: SupabaseRest, movement: Dict[str, Any], cfg: Config) -> T
         ("vstp_services", "vstp_auto", "vstp_locations"),
     ]:
         for service in fetch_services(db, table, headcode, cfg.target_date):
-            locations = fetch_locations(db, loc_table, str(service.get("train_uid") or ""), cfg.target_date)
+            # Location tables vary between deployments. In normal mode, use service-level
+            # headcode/date/origin/destination/metadata matching only. Only query location
+            # tables when explicitly requested.
+            locations = []
+            if cfg.require_acb_location_match:
+                locations = fetch_locations(db, loc_table, str(service.get("train_uid") or ""), cfg.target_date)
             score, reasons = score_candidate(movement, service, locations, cfg.target_date)
             if cfg.require_acb_location_match and not any(r.startswith("ACB time") for r in reasons):
                 score -= 25
@@ -521,7 +560,7 @@ def merge_updates(existing: Dict[str, Any], new_meta: Dict[str, Any]) -> Dict[st
 def main() -> int:
     cfg = load_config()
     db = SupabaseRest(cfg)
-    print("PATHING AUTO BACKFILL V1 ACTIVE")
+    print("PATHING AUTO BACKFILL V1.1 ACTIVE")
     print(f"Target date: {cfg.target_date}; station={cfg.station_code}; dry_run={cfg.dry_run}; safe_fallback={cfg.safe_fallback}")
 
     movements = fetch_station_movements(db, cfg)
@@ -562,7 +601,7 @@ def main() -> int:
                 "match_score": score,
                 "match_reasons": final_reasons,
                 "applied_updates": updates,
-                "matched_service_id": service.get("id") if service else None,
+                "matched_service_id": str(service.get("id")) if service and service.get("id") is not None else None,
                 "matched_train_uid": service.get("train_uid") if service else None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
