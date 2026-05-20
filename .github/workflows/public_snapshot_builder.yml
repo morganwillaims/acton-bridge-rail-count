@@ -7,8 +7,6 @@ on:
         description: "Snapshot date to build, e.g. 2026-05-16. Leave blank for today."
         required: false
         default: ""
-  schedule:
-    - cron: "*/10 * * * *"
 
 permissions:
   contents: read
