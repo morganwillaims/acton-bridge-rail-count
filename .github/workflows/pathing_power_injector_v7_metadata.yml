@@ -2,9 +2,6 @@ name: Acton Bridge Pathing Power Injector v7 Metadata
 
 on:
   workflow_dispatch:
-  schedule:
-    # Metadata overlay does not need to run constantly; watchdog can dispatch if stale.
-    - cron: '17 */3 * * *'
 
 concurrency:
   group: acton-bridge-pathing-power-injector-v7-metadata
