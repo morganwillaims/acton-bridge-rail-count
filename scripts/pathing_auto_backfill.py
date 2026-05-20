@@ -1,52 +1,51 @@
 #!/usr/bin/env python3
 """
-Automatic Pathing Metadata Capture / Pathing Auto Backfill v1.2
+Acton Bridge Rail Count - Pathing Auto Backfill v1.3
 
-Purpose
--------
-Find Acton Bridge freight rows in station_movements where pathing metadata is missing,
-match them against schedule_services first and vstp_services second, then copy only
-confirmed/cautious metadata into station_movements.
+Purpose:
+  Fill freight pathing metadata automatically and cautiously.
 
-This script does NOT alter the schedule loader. It only reads existing schedule/VSTP rows
-and backfills station_movements.
+Order of trust:
+  1) schedule_services confirmed fields -> source schedule_auto
+  2) vstp_services confirmed fields -> source vstp_auto
+  3) cautious visible-freight fallback only -> source safe_freight_fallback
 
-Required env:
-  SUPABASE_URL
-  SUPABASE_SERVICE_ROLE_KEY
-
-Optional env:
-  TARGET_DATE=YYYY-MM-DD          default: today in Europe/London
-  STATION_CODE=ACB                default: ACB
-  DRY_RUN=true|false              default: false
-  LIMIT=5000                      default: 5000
-  ENABLE_SAFE_FREIGHT_FALLBACK=true|false  default: true
-  REQUIRE_ACB_LOCATION_MATCH=true|false     default: false
-
-Safety changes in v1.2
-----------------------
-- Do not apply fallback to ghost/empty rows with no time and no route names.
-- If a schedule/VSTP candidate matches but has no usable pathing metadata, allow
-  cautious freight fallback only when the movement itself is a real visible row.
-- Never guess traction_class.
+Important:
+  - Does NOT guess traction_class.
+  - Does NOT use schedule_locations/vstp_locations train_uid columns.
+  - Does NOT touch schedule_loader.py.
+  - Does NOT apply fallback to completely blank ghost rows.
+  - Applies metadata to the visible station_movement row, not just a blank sibling.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
 import sys
+import urllib.parse
+import urllib.request
+import urllib.error
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
-from zoneinfo import ZoneInfo
 
+VERSION = "PATHING AUTO BACKFILL V1.3 ACTIVE"
 
-METADATA_FIELDS = [
+STATION_MOVEMENT_COLUMNS = [
+    "id",
+    "running_date",
+    "train_id",
+    "train_type",
+    "origin",
+    "destination",
+    "toc",
+    "planned_time",
+    "actual_time",
+    "status",
+    "source",
+    "platform",
     "pathing_power",
     "pathing_power_label",
     "pathing_power_source",
@@ -61,24 +60,10 @@ METADATA_FIELDS = [
     "pathing_power_updated_at",
 ]
 
-STATION_SELECT = ",".join([
+SCHEDULE_SERVICE_COLUMNS = [
     "id",
-    "running_date",
-    "train_id",
-    "train_type",
-    "origin",
-    "destination",
-    "toc",
-    "planned_time",
-    "actual_time",
-    "status",
-    "source",
-    "platform",
-    *METADATA_FIELDS,
-])
-
-SCHEDULE_SERVICE_SELECT = ",".join([
-    "id",
+    "created_at",
+    "updated_at",
     "train_uid",
     "stp_indicator",
     "schedule_start_date",
@@ -94,7 +79,7 @@ SCHEDULE_SERVICE_SELECT = ",".join([
     "destination_tiploc",
     "destination_name",
     "destination_arrival",
-    "raw",
+    "passes_acb",
     "power_type",
     "planned_power",
     "traction_type",
@@ -107,27 +92,25 @@ SCHEDULE_SERVICE_SELECT = ",".join([
     "pathing_power_label",
     "pathing_power_source",
     "pathing_power_updated_at",
-])
+]
 
-# IMPORTANT: vstp_services does not have train_status, train_category,
-# origin_departure, or destination_arrival in your current Supabase schema.
-VSTP_SERVICE_SELECT = ",".join([
+VSTP_SERVICE_COLUMNS = [
     "id",
+    "created_at",
+    "updated_at",
     "train_uid",
+    "stp_indicator",
+    "schedule_start_date",
+    "schedule_end_date",
+    "days_runs",
     "signalling_id",
+    "atoc_code",
+    "transaction_type",
     "origin_tiploc",
     "origin_name",
     "destination_tiploc",
     "destination_name",
-    "atoc_code",
-    "schedule_start_date",
-    "schedule_end_date",
-    "days_runs",
-    "stp_indicator",
-    "transaction_type",
-    "raw",
-    "created_at",
-    "updated_at",
+    "passes_acb",
     "power_type",
     "planned_power",
     "traction_type",
@@ -140,292 +123,198 @@ VSTP_SERVICE_SELECT = ",".join([
     "pathing_power_label",
     "pathing_power_source",
     "pathing_power_updated_at",
-])
+]
+
+UPDATE_FIELDS = [
+    "pathing_power",
+    "pathing_power_label",
+    "pathing_power_source",
+    "planned_power",
+    "power_type",
+    "traction_type",
+    "traction_class",
+    "timing_load",
+    "operating_characteristics",
+    "stock_type",
+    "speed",
+    "pathing_power_updated_at",
+]
 
 
-@dataclass
-class Config:
-    supabase_url: str
-    service_key: str
-    target_date: str
-    station_code: str = "ACB"
-    dry_run: bool = False
-    limit: int = 5000
-    safe_fallback: bool = True
-    require_acb_location_match: bool = False
-
-
-def env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None or value == "":
+def env_bool(name: str, default: bool = False) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return raw in {"1", "true", "yes", "y", "on"}
 
 
-def load_config() -> Config:
-    supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-    if not supabase_url or not service_key:
-        raise SystemExit("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
-
-    target_date = os.getenv("TARGET_DATE") or datetime.now(ZoneInfo("Europe/London")).date().isoformat()
-    # Validate date early so GitHub Actions fails loudly on typo.
-    date.fromisoformat(target_date)
-
-    return Config(
-        supabase_url=supabase_url,
-        service_key=service_key,
-        target_date=target_date,
-        station_code=os.getenv("STATION_CODE", "ACB").strip().upper() or "ACB",
-        dry_run=env_bool("DRY_RUN", False),
-        limit=int(os.getenv("LIMIT", "5000")),
-        safe_fallback=env_bool("ENABLE_SAFE_FREIGHT_FALLBACK", True),
-        require_acb_location_match=env_bool("REQUIRE_ACB_LOCATION_MATCH", False),
-    )
+def clean(value: Any) -> str:
+    return str(value or "").strip()
 
 
-class SupabaseRest:
-    def __init__(self, cfg: Config):
-        self.cfg = cfg
-        self.base = f"{cfg.supabase_url}/rest/v1"
-        self.headers = {
-            "apikey": cfg.service_key,
-            "Authorization": f"Bearer {cfg.service_key}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-        }
-
-    def request(self, method: str, table: str, params: Optional[Dict[str, str]] = None, body: Any = None) -> Any:
-        qs = f"?{urlencode(params or {}, safe='(),.*:') }" if params else ""
-        url = f"{self.base}/{table}{qs}"
-        data = None if body is None else json.dumps(body).encode("utf-8")
-        req = Request(url, data=data, headers=self.headers, method=method)
-        try:
-            with urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8")
-                return json.loads(raw) if raw else None
-        except HTTPError as e:
-            msg = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Supabase {method} {table} failed: HTTP {e.code}: {msg}\nURL: {url}") from e
-
-    def get(self, table: str, params: Dict[str, str]) -> List[Dict[str, Any]]:
-        result = self.request("GET", table, params=params)
-        if result is None:
-            return []
-        if not isinstance(result, list):
-            raise RuntimeError(f"Expected list from {table}, got {type(result)}")
-        return result
-
-    def patch_by_id(self, table: str, row_id: Any, updates: Dict[str, Any]) -> Any:
-        return self.request(
-            "PATCH",
-            table,
-            params={"id": f"eq.{row_id}"},
-            body=updates,
-        )
-
-    def insert_audit(self, payload: Dict[str, Any]) -> None:
-        try:
-            self.request("POST", "pathing_auto_backfill_audit", body=payload)
-        except Exception as exc:  # Audit table is optional; do not fail a successful backfill.
-            print(f"AUDIT INSERT SKIPPED: {exc}")
+def norm_headcode(value: Any) -> str:
+    return re.sub(r"\s+", "", clean(value).upper())
 
 
-def normalise_headcode(value: Any) -> str:
-    if not value:
-        return ""
-    text = str(value).strip().upper()
-    # TRUST IDs often include the headcode in the middle/end; prefer a normal 4-char headcode.
-    m = re.search(r"\b([0-9][A-Z][0-9]{2})\b", text)
-    if m:
-        return m.group(1)
-    m = re.search(r"([0-9][A-Z][0-9]{2})", text)
-    return m.group(1) if m else text[:4]
+def norm_text(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", clean(value).upper())
 
 
-def compact(value: Any) -> str:
-    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+def is_missing(value: Any) -> bool:
+    s = clean(value)
+    return not s or s.lower() in {"unknown", "null", "none", "route pending", "-", "—"}
 
 
-def safe_time_minutes(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    # Accept 2115, 21:15, 21:15:00.
-    m = re.match(r"^(\d{1,2}):?(\d{2})(?::\d{2})?$", text)
-    if not m:
-        return None
-    hh, mm = int(m.group(1)), int(m.group(2))
-    if not (0 <= hh <= 27 and 0 <= mm <= 59):
-        return None
-    return (hh % 24) * 60 + mm
+def row_has_any_pathing(row: Dict[str, Any]) -> bool:
+    keys = [
+        "pathing_power_label",
+        "pathing_power",
+        "power_type",
+        "planned_power",
+        "traction_type",
+        "traction_class",
+        "timing_load",
+        "operating_characteristics",
+        "stock_type",
+        "speed",
+    ]
+    return any(not is_missing(row.get(k)) for k in keys)
 
 
-def minute_gap(a: Optional[int], b: Optional[int]) -> Optional[int]:
-    if a is None or b is None:
-        return None
-    raw = abs(a - b)
-    return min(raw, 1440 - raw)
+def row_needs_update(row: Dict[str, Any]) -> bool:
+    return not row_has_any_pathing(row)
 
 
-def active_on_date(row: Dict[str, Any], target: str) -> bool:
-    d = date.fromisoformat(target)
-    start = row.get("schedule_start_date")
-    end = row.get("schedule_end_date")
-    if start and d < date.fromisoformat(str(start)[:10]):
+def is_visible_real_movement(row: Dict[str, Any]) -> bool:
+    """
+    Avoid blank sibling/ghost rows:
+      train_id only + everything else null = not safe.
+    But allow visible Unknown->Unknown rows if they have time/platform/status/source.
+    """
+    if is_missing(row.get("train_id")):
         return False
-    if end and d > date.fromisoformat(str(end)[:10]):
+
+    context_keys = ["planned_time", "actual_time", "origin", "destination", "platform", "status", "source"]
+    if not any(not is_missing(row.get(k)) for k in context_keys):
         return False
-    days = str(row.get("days_runs") or "").strip()
-    if len(days) >= 7 and set(days) <= {"0", "1"}:
-        # CIF days_runs is normally Monday first.
-        return days[d.weekday()] == "1"
+
     return True
 
 
-def is_freight_row(row: Dict[str, Any]) -> bool:
-    train_type = str(row.get("train_type") or "").lower()
-    headcode = normalise_headcode(row.get("train_id"))
-    if "freight" in train_type:
-        return True
-    return bool(headcode and headcode[0] in {"4", "6", "7"})
+def active_on_date(service: Dict[str, Any], target_date: str) -> bool:
+    start = clean(service.get("schedule_start_date"))[:10]
+    end = clean(service.get("schedule_end_date"))[:10]
+    if start and target_date < start:
+        return False
+    if end and target_date > end:
+        return False
+
+    days = clean(service.get("days_runs"))
+    if len(days) >= 7:
+        d = dt.date.fromisoformat(target_date)
+        idx = d.weekday()  # Mon=0
+        c = days[idx] if idx < len(days) else "1"
+        if c in {"0", " ", "N", "n"}:
+            return False
+    return True
 
 
-def is_missing_pathing(row: Dict[str, Any]) -> bool:
-    key_fields = ["pathing_power", "pathing_power_label", "planned_power", "power_type", "traction_type", "timing_load", "speed"]
-    return any(row.get(field) in (None, "") for field in key_fields)
+def power_code_from_values(*values: Any) -> Optional[str]:
+    joined = " ".join(clean(v) for v in values if not is_missing(v)).upper()
+    joined = joined.replace("_", " ").replace("-", " ")
+    if not joined:
+        return None
 
-
-def recursively_find(raw: Any, wanted: Iterable[str]) -> Dict[str, Any]:
-    wanted_lc = {w.lower(): w for w in wanted}
-    found: Dict[str, Any] = {}
-
-    def walk(obj: Any) -> None:
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                kl = str(key).lower()
-                if kl in wanted_lc and value not in (None, "") and wanted_lc[kl] not in found:
-                    found[wanted_lc[kl]] = value
-                walk(value)
-        elif isinstance(obj, list):
-            for item in obj:
-                walk(item)
-
-    walk(raw)
-    return found
-
-
-def metadata_from_service(row: Dict[str, Any], source: str) -> Dict[str, Any]:
-    # Direct typed columns are safest.
-    meta = {field: row.get(field) for field in METADATA_FIELDS if row.get(field) not in (None, "")}
-
-    # Raw JSON can contain the same fields under new_schedule_segment etc.
-    raw = row.get("raw")
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except json.JSONDecodeError:
-            raw = None
-    if raw:
-        nested = recursively_find(raw, [
-            "power_type",
-            "planned_power",
-            "traction_type",
-            "traction_class",
-            "timing_load",
-            "operating_characteristics",
-            "stock_type",
-            "speed",
-            "pathing_power",
-            "pathing_power_label",
-        ])
-        for key, value in nested.items():
-            meta.setdefault(key, value)
-
-    # Never convert uic_code into traction_class. UIC is not a confirmed locomotive class.
-    if str(meta.get("traction_class") or "").lower() in {"", "unknown", "none", "null"}:
-        meta.pop("traction_class", None)
-
-    if meta:
-        meta["pathing_power_source"] = row.get("pathing_power_source") or source
-        meta["pathing_power_updated_at"] = datetime.now(timezone.utc).isoformat()
-
-    # Build readable label only from confirmed generic fields.
-    label = build_label(meta)
-    if label and not meta.get("pathing_power_label"):
-        meta["pathing_power_label"] = label
-    if not meta.get("pathing_power"):
-        meta["pathing_power"] = build_pathing_power(meta)
-    return clean_updates(meta)
-
-
-def build_pathing_power(meta: Dict[str, Any]) -> Optional[str]:
-    power = compact(meta.get("power_type") or meta.get("planned_power"))
-    traction = compact(meta.get("traction_type"))
-    if "DIESEL" in power and ("LOCO" in traction or "LOCOMOTIVE" in traction):
-        return "diesel_locomotive"
-    if "ELECTRIC" in power and ("LOCO" in traction or "LOCOMOTIVE" in traction):
-        return "electric_locomotive"
-    if "DIESEL" in power:
-        return "diesel"
-    if "ELECTRIC" in power:
+    if re.search(r"ELECTRO\s*DIESEL|DIESEL\s*ELECTRIC|BI\s*MODE|DUAL", joined):
+        return "dual"
+    if re.search(r"\bEMU\b|ELECTRIC|OHLE|PANTOGRAPH|AC\s*LOCO", joined):
         return "electric"
+    if re.search(r"\bDMU\b|DIESEL|DIESEL\s*LOCO|LOCO\s*DIESEL", joined):
+        return "diesel"
+
+    # common compact pathing values
+    compact = joined.strip()
+    if compact in {"D", "DSL"}:
+        return "diesel"
+    if compact in {"E", "ELEC"}:
+        return "electric"
+    if compact in {"ED", "DE", "BI", "B"}:
+        return "dual"
     return None
 
 
-def build_label(meta: Dict[str, Any]) -> Optional[str]:
-    power = str(meta.get("power_type") or meta.get("planned_power") or "").strip().lower()
-    traction = str(meta.get("traction_type") or "").strip().lower()
-    if "diesel" in power and ("loco" in traction or "locomotive" in traction):
-        return "Pathed as diesel locomotive"
-    if "electric" in power and ("loco" in traction or "locomotive" in traction):
-        return "Pathed as electric locomotive"
-    if "diesel" in power:
-        return "Pathed as diesel"
-    if "electric" in power:
-        return "Pathed as electric"
+def label_for(power: Optional[str], traction_type: Any = "") -> Optional[str]:
+    tr = clean(traction_type).lower()
+    is_loco = "loco" in tr or "locomotive" in tr
+
+    if power == "diesel":
+        return "Pathed as diesel locomotive" if is_loco else "Pathed as diesel"
+    if power == "electric":
+        return "Pathed as electric locomotive" if is_loco else "Pathed as electric"
+    if power == "dual":
+        return "Pathed diesel/electric locomotive" if is_loco else "Pathed diesel/electric"
     return None
 
 
-def clean_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
-    cleaned: Dict[str, Any] = {}
-    for key in METADATA_FIELDS:
-        value = updates.get(key)
-        if value in (None, ""):
-            continue
-        if key == "traction_class":
-            # Keep only explicit class-like values; do not invent from timing load or UIC.
-            text = str(value).strip()
-            if not re.search(r"\d", text):
-                continue
-            value = text
-        cleaned[key] = value
-    return cleaned
-
-
-def has_real_visible_movement_context(row: Dict[str, Any]) -> bool:
+def confirmed_update_from_service(service: Dict[str, Any], source: str) -> Tuple[Dict[str, Any], List[str]]:
     """
-    Avoid applying fallback to empty duplicate/ghost rows.
-
-    A safe fallback is only useful for a real visible movement row, not for rows
-    that only contain a headcode and have no time/origin/destination context.
+    Extract confirmed metadata. We only set fields that exist on the matched service.
+    traction_class is copied only when present; we never invent it.
     """
-    has_time = safe_time_minutes(row.get("planned_time") or row.get("actual_time")) is not None
-    has_route = bool(compact(row.get("origin")) or compact(row.get("destination")))
-    return has_time or has_route
+    updates: Dict[str, Any] = {}
+    reasons: List[str] = []
+
+    for key in [
+        "planned_power",
+        "power_type",
+        "traction_type",
+        "traction_class",
+        "timing_load",
+        "operating_characteristics",
+        "stock_type",
+        "speed",
+    ]:
+        if not is_missing(service.get(key)):
+            updates[key] = service.get(key)
+            reasons.append(f"{key}_from_{source}")
+
+    if not is_missing(service.get("pathing_power")):
+        updates["pathing_power"] = service.get("pathing_power")
+        reasons.append(f"pathing_power_from_{source}")
+
+    if not is_missing(service.get("pathing_power_label")):
+        updates["pathing_power_label"] = service.get("pathing_power_label")
+        reasons.append(f"pathing_power_label_from_{source}")
+
+    # If the service has power/traction fields but not the normalised pathing label, derive a safe label.
+    power = updates.get("pathing_power") or power_code_from_values(
+        service.get("pathing_power"),
+        service.get("pathing_power_label"),
+        service.get("planned_power"),
+        service.get("power_type"),
+        service.get("traction_type"),
+        service.get("stock_type"),
+        service.get("timing_load"),
+    )
+    if power and is_missing(updates.get("pathing_power")):
+        updates["pathing_power"] = power
+        reasons.append(f"pathing_power_derived_from_{source}")
+
+    if power and is_missing(updates.get("pathing_power_label")):
+        label = label_for(power, updates.get("traction_type") or service.get("traction_type"))
+        if label:
+            updates["pathing_power_label"] = label
+            reasons.append(f"pathing_power_label_derived_from_{source}")
+
+    if updates:
+        updates["pathing_power_source"] = source
+        updates["pathing_power_updated_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+
+    return updates, reasons
 
 
-def fallback_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
-    headcode = normalise_headcode(row.get("train_id"))
-    # Conservative fallback: only for clear freight headcodes on real visible rows.
-    # Never fill exact class.
-    if not is_freight_row(row) or not headcode or headcode[0] not in {"4", "6", "7"}:
-        return {}
-    if not has_real_visible_movement_context(row):
-        return {}
-    now = datetime.now(timezone.utc).isoformat()
+def safe_fallback_update() -> Tuple[Dict[str, Any], List[str]]:
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
     return {
         "pathing_power": "likely_diesel_locomotive",
         "pathing_power_label": "Likely diesel locomotive path (unconfirmed fallback)",
@@ -434,213 +323,303 @@ def fallback_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
         "power_type": "diesel",
         "traction_type": "locomotive",
         "pathing_power_updated_at": now,
-        # Intentionally no traction_class.
-    }
+    }, ["safe_freight_fallback_visible_freight_no_confirmed_pathing"]
 
 
-def score_candidate(movement: Dict[str, Any], service: Dict[str, Any], locations: Optional[List[Dict[str, Any]]], target_date: str) -> Tuple[int, List[str]]:
+def merge_updates_for_row(existing: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Do not overwrite better existing values. Fill blanks only, except pathing_power_updated_at
+    when at least one real field is filled.
+    """
+    out: Dict[str, Any] = {}
+    for key, value in updates.items():
+        if key == "pathing_power_updated_at":
+            continue
+        if key not in UPDATE_FIELDS:
+            continue
+        if is_missing(value):
+            continue
+        if is_missing(existing.get(key)):
+            out[key] = value
+
+    if out:
+        out["pathing_power_updated_at"] = updates.get("pathing_power_updated_at") or dt.datetime.now(dt.timezone.utc).isoformat()
+    return out
+
+
+class Supabase:
+    def __init__(self, url: str, key: str) -> None:
+        self.url = url.rstrip("/")
+        self.key = key
+
+    def request(self, method: str, path: str, params: Optional[Dict[str, str]] = None, payload: Any = None, prefer: str = "return=minimal") -> Any:
+        query = ""
+        if params:
+            query = "?" + urllib.parse.urlencode(params, doseq=True, safe=",.*():")
+        url = f"{self.url}/rest/v1/{path}{query}"
+
+        data = None
+        if payload is not None:
+            data = json.dumps(payload).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method=method,
+            headers={
+                "apikey": self.key,
+                "authorization": f"Bearer {self.key}",
+                "accept": "application/json",
+                "content-type": "application/json",
+                "prefer": prefer,
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = resp.read().decode("utf-8")
+                if not body:
+                    return None
+                return json.loads(body)
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Supabase {method} {path} failed: HTTP {e.code}: {body}\nURL: {url}") from e
+
+    def get(self, path: str, params: Dict[str, str]) -> Any:
+        return self.request("GET", path, params=params, prefer="")
+
+    def patch_by_id(self, table: str, row_id: str, payload: Dict[str, Any]) -> None:
+        self.request("PATCH", table, params={"id": f"eq.{row_id}"}, payload=payload)
+
+    def post(self, path: str, payload: Any) -> None:
+        self.request("POST", path, payload=payload, prefer="return=minimal")
+
+
+@dataclass
+class MatchResult:
+    source: str
+    service: Optional[Dict[str, Any]]
+    score: int
+    reasons: List[str]
+    updates: Dict[str, Any]
+
+
+def service_match_score(row: Dict[str, Any], service: Dict[str, Any], source: str, target_date: str) -> Tuple[int, List[str]]:
     score = 0
     reasons: List[str] = []
-    move_headcode = normalise_headcode(movement.get("train_id"))
-    service_headcode = normalise_headcode(service.get("signalling_id"))
-    if move_headcode and service_headcode and move_headcode == service_headcode:
-        score += 60
+
+    if norm_headcode(row.get("train_id")) and norm_headcode(row.get("train_id")) == norm_headcode(service.get("signalling_id")):
+        score += 70
         reasons.append("headcode")
 
     if active_on_date(service, target_date):
-        score += 20
+        score += 10
         reasons.append("date/days")
     else:
-        return -999, ["not active on target date"]
+        return -999, ["inactive_date"]
 
-    if compact(movement.get("origin")) and compact(service.get("origin_name")):
-        if compact(movement.get("origin"))[:8] in compact(service.get("origin_name")) or compact(service.get("origin_name"))[:8] in compact(movement.get("origin")):
-            score += 8
+    origin_row = norm_text(row.get("origin"))
+    dest_row = norm_text(row.get("destination"))
+
+    origin_candidates = [norm_text(service.get("origin_tiploc")), norm_text(service.get("origin_name"))]
+    dest_candidates = [norm_text(service.get("destination_tiploc")), norm_text(service.get("destination_name"))]
+
+    if origin_row and origin_row not in {"UNKNOWN"}:
+        if origin_row in origin_candidates or any(origin_row and c and (origin_row in c or c in origin_row) for c in origin_candidates):
+            score += 10
             reasons.append("origin")
 
-    if compact(movement.get("destination")) and compact(service.get("destination_name")):
-        if compact(movement.get("destination"))[:8] in compact(service.get("destination_name")) or compact(service.get("destination_name"))[:8] in compact(movement.get("destination")):
-            score += 8
+    if dest_row and dest_row not in {"UNKNOWN"}:
+        if dest_row in dest_candidates or any(dest_row and c and (dest_row in c or c in dest_row) for c in dest_candidates):
+            score += 10
             reasons.append("destination")
 
-    movement_time = safe_time_minutes(movement.get("planned_time") or movement.get("actual_time"))
-    best_gap: Optional[int] = None
-    if locations:
-        for loc in locations:
-            tiploc = compact(loc.get("tiploc") or loc.get("location") or loc.get("tiploc_code"))
-            if tiploc and tiploc not in {"ACB", "ACBG", "ACTONBRIDGE"}:
-                continue
-            for key, value in loc.items():
-                if any(word in key.lower() for word in ["pass", "arrival", "departure", "wtt", "gbtt", "planned"]):
-                    gap = minute_gap(movement_time, safe_time_minutes(value))
-                    if gap is not None:
-                        best_gap = gap if best_gap is None else min(best_gap, gap)
-        if best_gap is not None:
-            if best_gap <= 3:
-                score += 25
-                reasons.append(f"ACB time ±{best_gap}m")
-            elif best_gap <= 10:
-                score += 12
-                reasons.append(f"ACB time ±{best_gap}m")
-            else:
-                score -= 10
-                reasons.append(f"ACB time gap {best_gap}m")
+    if source == "vstp_auto":
+        score += 2
+        reasons.append("vstp/new-short-term")
 
-    # Prefer richer metadata.
-    richness = sum(1 for f in ["power_type", "planned_power", "traction_type", "timing_load", "speed", "pathing_power_label"] if service.get(f) not in (None, ""))
-    score += min(richness * 3, 18)
-    if richness:
-        reasons.append(f"metadata x{richness}")
+    if service.get("passes_acb") is True:
+        score += 5
+        reasons.append("passes_acb")
 
-    # STP priority: VSTP/O overlays are usually more specific than permanent schedules.
-    stp = str(service.get("stp_indicator") or "").upper()
-    if stp == "O":
-        score += 8
-        reasons.append("overlay")
-    elif stp == "N":
-        score += 12
-        reasons.append("new/short-term")
+    if any(not is_missing(service.get(k)) for k in ["pathing_power", "pathing_power_label", "power_type", "planned_power", "traction_type", "timing_load", "speed"]):
+        score += 5
+        reasons.append("has_pathing_metadata")
 
     return score, reasons
 
 
-def fetch_station_movements(db: SupabaseRest, cfg: Config) -> List[Dict[str, Any]]:
-    rows = db.get("station_movements", {
-        "select": STATION_SELECT,
-        "running_date": f"eq.{cfg.target_date}",
-        "limit": str(cfg.limit),
-        "order": "planned_time.asc.nullslast,actual_time.asc.nullslast",
-    })
-    return [r for r in rows if is_freight_row(r) and is_missing_pathing(r)]
+def fetch_station_rows(db: Supabase, target_date: str) -> List[Dict[str, Any]]:
+    rows = db.get(
+        "station_movements",
+        {
+            "select": ",".join(STATION_MOVEMENT_COLUMNS),
+            "running_date": f"eq.{target_date}",
+            "train_type": "eq.freight",
+            "limit": "5000",
+            "order": "planned_time.asc.nullslast,actual_time.asc.nullslast,train_id.asc",
+        },
+    )
+    return rows or []
 
 
-def fetch_services(db: SupabaseRest, table: str, headcode: str, target_date: str) -> List[Dict[str, Any]]:
-    if not headcode:
-        return []
-    select_cols = SCHEDULE_SERVICE_SELECT if table == "schedule_services" else VSTP_SERVICE_SELECT
-    params = {
-        "select": select_cols,
-        "signalling_id": f"eq.{headcode}",
-        "limit": "50",
-        "order": "updated_at.desc.nullslast,created_at.desc.nullslast",
-    }
-    rows = db.get(table, params)
-    return [r for r in rows if active_on_date(r, target_date)]
+def fetch_services_for_headcode(db: Supabase, table: str, headcode: str) -> List[Dict[str, Any]]:
+    columns = SCHEDULE_SERVICE_COLUMNS if table == "schedule_services" else VSTP_SERVICE_COLUMNS
+    rows = db.get(
+        table,
+        {
+            "select": ",".join(columns),
+            "signalling_id": f"eq.{headcode}",
+            "limit": "500",
+            "order": "updated_at.desc.nullslast,created_at.desc.nullslast",
+        },
+    )
+    return rows or []
 
 
-def fetch_locations(db: SupabaseRest, table: str, train_uid: str, target_date: str) -> List[Dict[str, Any]]:
-    if not train_uid:
-        return []
-    try:
-        return db.get(table, {
-            "select": "*",
-            "train_uid": f"eq.{train_uid}",
-            "limit": "200",
-        })
-    except Exception as exc:
-        print(f"LOCATION LOOKUP SKIPPED for {table}/{train_uid}: {exc}")
-        return []
+def best_confirmed_match_for_row(db: Supabase, row: Dict[str, Any], target_date: str, service_cache: Dict[Tuple[str, str], List[Dict[str, Any]]]) -> MatchResult:
+    headcode = norm_headcode(row.get("train_id"))
+    best = MatchResult(source="", service=None, score=-999, reasons=[], updates={})
 
+    for table, source in [("schedule_services", "schedule_auto"), ("vstp_services", "vstp_auto")]:
+        cache_key = (table, headcode)
+        if cache_key not in service_cache:
+            try:
+                service_cache[cache_key] = fetch_services_for_headcode(db, table, headcode)
+            except Exception as exc:
+                print(f"WARN fetch {table} {headcode} failed: {exc}", flush=True)
+                service_cache[cache_key] = []
 
-def best_match_for(db: SupabaseRest, movement: Dict[str, Any], cfg: Config) -> Tuple[Optional[str], Optional[Dict[str, Any]], int, List[str]]:
-    headcode = normalise_headcode(movement.get("train_id"))
-    best: Tuple[Optional[str], Optional[Dict[str, Any]], int, List[str]] = (None, None, -999, [])
+        for service in service_cache[cache_key]:
+            score, reasons = service_match_score(row, service, source, target_date)
+            if score < 0:
+                continue
 
-    for table, source, loc_table in [
-        ("schedule_services", "schedule_auto", "schedule_locations"),
-        ("vstp_services", "vstp_auto", "vstp_locations"),
-    ]:
-        for service in fetch_services(db, table, headcode, cfg.target_date):
-            # Location tables vary between deployments. In normal mode, use service-level
-            # headcode/date/origin/destination/metadata matching only. Only query location
-            # tables when explicitly requested.
-            locations = []
-            if cfg.require_acb_location_match:
-                locations = fetch_locations(db, loc_table, str(service.get("train_uid") or ""), cfg.target_date)
-            score, reasons = score_candidate(movement, service, locations, cfg.target_date)
-            if cfg.require_acb_location_match and not any(r.startswith("ACB time") for r in reasons):
-                score -= 25
-                reasons.append("no ACB location time match")
-            # Prefer schedule first if scores are tied; VSTP must beat it to replace it.
-            if score > best[2]:
-                best = (source, service, score, reasons)
+            updates, update_reasons = confirmed_update_from_service(service, source)
+            if not updates:
+                # Keep a score for diagnostics, but don't treat as confirmed pathing.
+                if score > best.score:
+                    best = MatchResult(source=source, service=service, score=score, reasons=reasons + ["matched_service_no_pathing_metadata"], updates={})
+                continue
+
+            score_with_metadata = score + 20
+            if score_with_metadata > best.score:
+                best = MatchResult(
+                    source=source,
+                    service=service,
+                    score=score_with_metadata,
+                    reasons=reasons + update_reasons,
+                    updates=updates,
+                )
+
     return best
 
 
-def merge_updates(existing: Dict[str, Any], new_meta: Dict[str, Any]) -> Dict[str, Any]:
-    updates: Dict[str, Any] = {}
-    for key, value in new_meta.items():
-        if key not in METADATA_FIELDS or value in (None, ""):
-            continue
-        # Preserve exact confirmed traction_class if already present.
-        if existing.get(key) not in (None, ""):
-            continue
-        updates[key] = value
-    return updates
+def insert_audit(db: Supabase, row: Dict[str, Any], match: MatchResult, updates: Dict[str, Any], dry_run: bool) -> None:
+    payload = {
+        "station_movement_id": clean(row.get("id")),
+        "running_date": clean(row.get("running_date"))[:10],
+        "train_id": norm_headcode(row.get("train_id")),
+        "matched_source": match.source or updates.get("pathing_power_source") or "",
+        "match_score": match.score if match.score != -999 else None,
+        "match_reasons": match.reasons,
+        "applied_updates": updates,
+        "matched_service_id": clean(match.service.get("id")) if match.service else None,
+        "matched_train_uid": clean(match.service.get("train_uid")) if match.service else None,
+        "dry_run": dry_run,
+    }
+    try:
+        db.post("pathing_auto_backfill_audit", payload)
+    except Exception as exc:
+        print(f"AUDIT INSERT SKIPPED: {exc}", flush=True)
 
 
 def main() -> int:
-    cfg = load_config()
-    db = SupabaseRest(cfg)
-    print("PATHING AUTO BACKFILL V1.2 ACTIVE")
-    print(f"Target date: {cfg.target_date}; station={cfg.station_code}; dry_run={cfg.dry_run}; safe_fallback={cfg.safe_fallback}")
+    print(VERSION, flush=True)
 
-    movements = fetch_station_movements(db, cfg)
-    print(f"Freight rows with missing pathing fields: {len(movements)}")
+    supabase_url = clean(os.getenv("SUPABASE_URL"))
+    supabase_key = clean(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY"))
+    if not supabase_url or not supabase_key:
+        print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.", file=sys.stderr)
+        return 2
+
+    target_date = clean(os.getenv("TARGET_DATE") or os.getenv("SNAPSHOT_DATE"))
+    if not target_date:
+        target_date = dt.datetime.now(dt.timezone.utc).date().isoformat()
+
+    dry_run = env_bool("DRY_RUN", True)
+    enable_fallback = env_bool("ENABLE_SAFE_FREIGHT_FALLBACK", True)
+
+    print(f"Target date: {target_date}; station=ACB; dry_run={dry_run}; safe_fallback={enable_fallback}", flush=True)
+
+    db = Supabase(supabase_url, supabase_key)
+
+    rows = fetch_station_rows(db, target_date)
+    freight_rows = [r for r in rows if norm_headcode(r.get("train_id"))]
+    missing_rows = [r for r in freight_rows if row_needs_update(r)]
+
+    print(f"Freight rows fetched: {len(rows)}; with headcode: {len(freight_rows)}; missing pathing-ish fields: {len(missing_rows)}", flush=True)
+
+    service_cache: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
 
     updated = 0
+    confirmed = 0
+    fallback = 0
     skipped = 0
-    fallbacked = 0
 
-    for movement in movements:
-        headcode = normalise_headcode(movement.get("train_id"))
-        source, service, score, reasons = best_match_for(db, movement, cfg)
-        meta: Dict[str, Any] = {}
-        final_source = source
-        final_reasons = reasons[:]
+    for row in missing_rows:
+        row_id = clean(row.get("id"))
+        headcode = norm_headcode(row.get("train_id"))
 
-        if service and source and score >= 75:
-            meta = metadata_from_service(service, source)
-            # Some schedule/VSTP rows match the train but contain no pathing fields.
-            # In that case, use cautious fallback only if the station movement itself
-            # has real visible context. This fills useful table rows while avoiding
-            # blank ghost rows.
-            if not meta and cfg.safe_fallback:
-                meta = fallback_metadata(movement)
-                if meta:
-                    final_source = "safe_freight_fallback"
-                    final_reasons.append(f"fallback used after matched service had no pathing metadata; best_score={score}")
-        elif cfg.safe_fallback:
-            meta = fallback_metadata(movement)
-            final_source = "safe_freight_fallback" if meta else source
-            final_reasons.append(f"fallback used; best_score={score}")
-
-        updates = merge_updates(movement, meta)
-        if not updates:
+        if not is_visible_real_movement(row):
             skipped += 1
-            print(f"SKIP {movement.get('id')} {headcode}: no safe metadata update; best={source} score={score} reasons={'; '.join(reasons)}")
+            print(f"SKIP {row_id} {headcode}: blank/ghost row; no visible context", flush=True)
             continue
 
-        print(f"UPDATE {movement.get('id')} {headcode}: source={final_source} score={score} reasons={'; '.join(final_reasons)} updates={json.dumps(updates, ensure_ascii=False)}")
-        if not cfg.dry_run:
-            db.patch_by_id("station_movements", movement["id"], updates)
-            db.insert_audit({
-                "station_movement_id": movement.get("id"),
-                "running_date": movement.get("running_date"),
-                "train_id": movement.get("train_id"),
-                "matched_source": final_source,
-                "match_score": score,
-                "match_reasons": final_reasons,
-                "applied_updates": updates,
-                "matched_service_id": str(service.get("id")) if service and service.get("id") is not None else None,
-                "matched_train_uid": service.get("train_uid") if service else None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
-        updated += 1
-        if final_source == "safe_freight_fallback":
-            fallbacked += 1
+        match = best_confirmed_match_for_row(db, row, target_date, service_cache)
+        candidate_updates = dict(match.updates)
 
-    print(f"Done. updated={updated}; fallback={fallbacked}; skipped={skipped}; dry_run={cfg.dry_run}")
+        if not candidate_updates and enable_fallback:
+            candidate_updates, fb_reasons = safe_fallback_update()
+            match = MatchResult(
+                source="safe_freight_fallback",
+                service=match.service,
+                score=max(match.score, 0),
+                reasons=(match.reasons or []) + fb_reasons,
+                updates=candidate_updates,
+            )
+
+        updates = merge_updates_for_row(row, candidate_updates)
+
+        if not updates:
+            skipped += 1
+            print(f"SKIP {row_id} {headcode}: no safe metadata update; best={match.source or 'None'} score={match.score} reasons={'; '.join(match.reasons)}", flush=True)
+            continue
+
+        source = updates.get("pathing_power_source") or match.source
+        print(
+            f"{'DRY ' if dry_run else ''}UPDATE {row_id} {headcode}: "
+            f"source={source} score={match.score} reasons={'; '.join(match.reasons)} "
+            f"updates={json.dumps(updates, sort_keys=True)}",
+            flush=True,
+        )
+
+        if not dry_run:
+            try:
+                db.patch_by_id("station_movements", row_id, updates)
+                insert_audit(db, row, match, updates, dry_run=False)
+            except Exception as exc:
+                print(f"ERROR updating {row_id} {headcode}: {exc}", flush=True)
+                skipped += 1
+                continue
+
+        updated += 1
+        if source in {"schedule_auto", "vstp_auto"}:
+            confirmed += 1
+        elif source == "safe_freight_fallback":
+            fallback += 1
+
+    print(f"Done. updated={updated}; confirmed={confirmed}; fallback={fallback}; skipped={skipped}; dry_run={dry_run}", flush=True)
     return 0
 
 
