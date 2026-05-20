@@ -32,10 +32,7 @@ on:
           - "true"
         default: "false"
 
-  schedule:
-    # Keep current-day freight pathing fresh.
-    # GitHub schedules are UTC and may run a few minutes late.
-    - cron: "*/30 * * * *"
+
 
 jobs:
   pathing-auto-backfill:
