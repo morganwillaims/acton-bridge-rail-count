@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # TRUST collector: frequent, short run. Avoid long loops that can lose the hosted runner.
-    - cron: "*/5 * * * *"
+    
 
 concurrency:
   group: acton-bridge-collector
