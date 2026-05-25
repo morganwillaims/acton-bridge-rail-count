@@ -5,7 +5,7 @@ on:
   schedule:
     # GitHub schedules are UTC and may be delayed a few minutes.
     # This checks every 10 minutes, but only dispatches stale jobs.
-    - cron: '*/10 * * * *'
+    
 
 permissions:
   actions: write
